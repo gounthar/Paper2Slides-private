@@ -71,7 +71,8 @@ python -m paper2slides --input paper.pdf --output slides --style doraemon --leng
 </tr>
 </table>
 
-<sub>✨ Examples generated from <a href="https://arxiv.org/abs/2512.02556">DeepSeek-V3.2: Pushing the Frontier of Open Large Language Models</a> — multiple styles available by modifying the <code>--style</code> parameter</sub>
+<sub>✨ Multiple styles available — simply modify the <code>--style</code> parameter<br/>
+Examples from <a href="https://arxiv.org/abs/2512.02556">DeepSeek-V3.2: Pushing the Frontier of Open Large Language Models</a></sub>
 
 </div>
 
