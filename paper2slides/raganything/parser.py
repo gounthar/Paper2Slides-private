@@ -54,6 +54,7 @@ class Parser:
     OFFICE_FORMATS = {".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"}
     IMAGE_FORMATS = {".png", ".jpeg", ".jpg", ".bmp", ".tiff", ".tif", ".gif", ".webp"}
     TEXT_FORMATS = {".txt", ".md"}
+    ASCIIDOC_FORMATS = {".adoc", ".asciidoc", ".asc"}
 
     # Class-level logger
     logger = logging.getLogger(__name__)
@@ -433,6 +434,218 @@ class Parser:
 
         except Exception as e:
             logging.error(f"Error in convert_text_to_pdf: {str(e)}")
+            raise
+
+    @staticmethod
+    def convert_asciidoc_to_pdf(
+        adoc_path: Union[str, Path], output_dir: Optional[str] = None
+    ) -> Path:
+        """
+        Convert AsciiDoc file (.adoc, .asciidoc, .asc) to PDF using asciidoctor-pdf.
+
+        Requires asciidoctor-pdf to be installed:
+        - gem install asciidoctor-pdf
+        - Or: brew install asciidoctor (macOS)
+
+        Args:
+            adoc_path: Path to the AsciiDoc file
+            output_dir: Output directory for the PDF file
+
+        Returns:
+            Path to the generated PDF file
+        """
+        try:
+            adoc_path = Path(adoc_path)
+            if not adoc_path.exists():
+                raise FileNotFoundError(f"AsciiDoc file does not exist: {adoc_path}")
+
+            # Supported AsciiDoc formats
+            supported_formats = {".adoc", ".asciidoc", ".asc"}
+            if adoc_path.suffix.lower() not in supported_formats:
+                raise ValueError(f"Unsupported AsciiDoc format: {adoc_path.suffix}")
+
+            # Prepare output directory
+            if output_dir:
+                base_output_dir = Path(output_dir)
+            else:
+                base_output_dir = adoc_path.parent / "asciidoctor_output"
+
+            base_output_dir.mkdir(parents=True, exist_ok=True)
+            pdf_path = base_output_dir / f"{adoc_path.stem}.pdf"
+
+            logging.info(f"Converting {adoc_path.name} to PDF using asciidoctor-pdf...")
+
+            import platform
+
+            # Try asciidoctor-pdf first, then fall back to asciidoctor + wkhtmltopdf
+            conversion_successful = False
+            commands_to_try = [
+                # asciidoctor-pdf (preferred)
+                ["asciidoctor-pdf", "-a", "allow-uri-read", "-o", str(pdf_path), str(adoc_path)],
+                # asciidoctor-pdf via bundle
+                ["bundle", "exec", "asciidoctor-pdf", "-a", "allow-uri-read", "-o", str(pdf_path), str(adoc_path)],
+            ]
+
+            subprocess_kwargs = {
+                "capture_output": True,
+                "text": True,
+                "timeout": 120,
+                "encoding": "utf-8",
+                "errors": "ignore",
+            }
+
+            if platform.system() == "Windows":
+                subprocess_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+            for cmd in commands_to_try:
+                try:
+                    result = subprocess.run(cmd, **subprocess_kwargs)
+                    if result.returncode == 0 and pdf_path.exists():
+                        conversion_successful = True
+                        logging.info(f"Successfully converted {adoc_path.name} to PDF using {cmd[0]}")
+                        break
+                    else:
+                        logging.warning(f"Command '{cmd[0]}' failed: {result.stderr}")
+                except FileNotFoundError:
+                    logging.warning(f"Command '{cmd[0]}' not found")
+                except subprocess.TimeoutExpired:
+                    logging.warning(f"Command '{cmd[0]}' timed out")
+                except Exception as e:
+                    logging.warning(f"Command '{cmd[0]}' failed: {e}")
+
+            # Fallback: asciidoctor to HTML, then wkhtmltopdf
+            if not conversion_successful:
+                logging.info("Trying fallback: asciidoctor → HTML → wkhtmltopdf...")
+                html_path = base_output_dir / f"{adoc_path.stem}.html"
+
+                try:
+                    # Convert to HTML first
+                    html_cmd = ["asciidoctor", "-o", str(html_path), str(adoc_path)]
+                    result = subprocess.run(html_cmd, **subprocess_kwargs)
+
+                    if result.returncode == 0 and html_path.exists():
+                        # Convert HTML to PDF
+                        pdf_cmd = ["wkhtmltopdf", "--enable-local-file-access", str(html_path), str(pdf_path)]
+                        result = subprocess.run(pdf_cmd, **subprocess_kwargs)
+
+                        if result.returncode == 0 and pdf_path.exists():
+                            conversion_successful = True
+                            logging.info("Successfully converted via asciidoctor + wkhtmltopdf")
+                            # Clean up HTML
+                            html_path.unlink()
+                except Exception as e:
+                    logging.warning(f"Fallback conversion failed: {e}")
+
+            if not conversion_successful:
+                raise RuntimeError(
+                    f"AsciiDoc conversion failed for {adoc_path.name}. "
+                    f"Please install asciidoctor-pdf:\n"
+                    "- Ruby: gem install asciidoctor-pdf\n"
+                    "- macOS: brew install asciidoctor\n"
+                    "- Ubuntu/Debian: sudo apt-get install asciidoctor\n"
+                    "Or install asciidoctor + wkhtmltopdf as fallback."
+                )
+
+            # Validate the generated PDF
+            if not pdf_path.exists() or pdf_path.stat().st_size < 100:
+                raise RuntimeError(
+                    f"PDF conversion failed for {adoc_path.name} - generated PDF is empty or corrupted."
+                )
+
+            logging.info(f"Generated PDF: {pdf_path.name} ({pdf_path.stat().st_size / 1024:.1f} KB)")
+            return pdf_path
+
+        except Exception as e:
+            logging.error(f"Error in convert_asciidoc_to_pdf: {str(e)}")
+            raise
+
+    @staticmethod
+    def convert_markdown_to_pdf_pandoc(
+        md_path: Union[str, Path], output_dir: Optional[str] = None
+    ) -> Path:
+        """
+        Convert Markdown file to PDF using pandoc (better quality than ReportLab).
+
+        Requires pandoc to be installed:
+        - brew install pandoc (macOS)
+        - sudo apt-get install pandoc (Ubuntu/Debian)
+        - choco install pandoc (Windows)
+
+        Also requires a PDF engine (pdflatex, xelatex, or wkhtmltopdf).
+
+        Args:
+            md_path: Path to the Markdown file
+            output_dir: Output directory for the PDF file
+
+        Returns:
+            Path to the generated PDF file
+        """
+        try:
+            md_path = Path(md_path)
+            if not md_path.exists():
+                raise FileNotFoundError(f"Markdown file does not exist: {md_path}")
+
+            # Prepare output directory
+            if output_dir:
+                base_output_dir = Path(output_dir)
+            else:
+                base_output_dir = md_path.parent / "pandoc_output"
+
+            base_output_dir.mkdir(parents=True, exist_ok=True)
+            pdf_path = base_output_dir / f"{md_path.stem}.pdf"
+
+            logging.info(f"Converting {md_path.name} to PDF using pandoc...")
+
+            import platform
+
+            subprocess_kwargs = {
+                "capture_output": True,
+                "text": True,
+                "timeout": 120,
+                "encoding": "utf-8",
+                "errors": "ignore",
+            }
+
+            if platform.system() == "Windows":
+                subprocess_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+            # Try different PDF engines
+            pdf_engines = ["xelatex", "pdflatex", "wkhtmltopdf"]
+            conversion_successful = False
+
+            for engine in pdf_engines:
+                try:
+                    if engine == "wkhtmltopdf":
+                        # wkhtmltopdf needs HTML intermediate
+                        cmd = ["pandoc", str(md_path), "-o", str(pdf_path), "-t", "html5", "--pdf-engine=wkhtmltopdf"]
+                    else:
+                        cmd = ["pandoc", str(md_path), "-o", str(pdf_path), f"--pdf-engine={engine}"]
+
+                    result = subprocess.run(cmd, **subprocess_kwargs)
+
+                    if result.returncode == 0 and pdf_path.exists() and pdf_path.stat().st_size > 100:
+                        conversion_successful = True
+                        logging.info(f"Successfully converted {md_path.name} to PDF using pandoc + {engine}")
+                        break
+                    else:
+                        logging.warning(f"pandoc with {engine} failed: {result.stderr}")
+                except FileNotFoundError:
+                    logging.warning(f"pandoc or {engine} not found")
+                except subprocess.TimeoutExpired:
+                    logging.warning(f"pandoc with {engine} timed out")
+                except Exception as e:
+                    logging.warning(f"pandoc with {engine} failed: {e}")
+
+            if not conversion_successful:
+                # Fall back to ReportLab method
+                logging.info("Falling back to ReportLab conversion...")
+                return Parser.convert_text_to_pdf(md_path, output_dir)
+
+            logging.info(f"Generated PDF: {pdf_path.name} ({pdf_path.stat().st_size / 1024:.1f} KB)")
+            return pdf_path
+
+        except Exception as e:
+            logging.error(f"Error in convert_markdown_to_pdf_pandoc: {str(e)}")
             raise
 
     @staticmethod
@@ -1124,8 +1337,17 @@ class MineruParser(Parser):
             List[Dict[str, Any]]: List of content blocks
         """
         try:
-            # Convert text file to PDF using base class method
-            pdf_path = self.convert_text_to_pdf(text_path, output_dir)
+            text_path = Path(text_path)
+
+            # Use pandoc for markdown if available (better quality)
+            if text_path.suffix.lower() == ".md":
+                try:
+                    pdf_path = self.convert_markdown_to_pdf_pandoc(text_path, output_dir)
+                except Exception:
+                    # Fall back to ReportLab
+                    pdf_path = self.convert_text_to_pdf(text_path, output_dir)
+            else:
+                pdf_path = self.convert_text_to_pdf(text_path, output_dir)
 
             # Parse the converted PDF
             return self.parse_pdf(
@@ -1134,6 +1356,40 @@ class MineruParser(Parser):
 
         except Exception as e:
             logging.error(f"Error in parse_text_file: {str(e)}")
+            raise
+
+    def parse_asciidoc_file(
+        self,
+        adoc_path: Union[str, Path],
+        output_dir: Optional[str] = None,
+        lang: Optional[str] = None,
+        **kwargs,
+    ) -> List[Dict[str, Any]]:
+        """
+        Parse AsciiDoc file by first converting to PDF, then parsing with MinerU 2.0
+
+        Supported formats: .adoc, .asciidoc, .asc
+
+        Args:
+            adoc_path: Path to the AsciiDoc file
+            output_dir: Output directory path
+            lang: Document language for OCR optimization
+            **kwargs: Additional parameters for mineru command
+
+        Returns:
+            List[Dict[str, Any]]: List of content blocks
+        """
+        try:
+            # Convert AsciiDoc to PDF using asciidoctor-pdf
+            pdf_path = self.convert_asciidoc_to_pdf(adoc_path, output_dir)
+
+            # Parse the converted PDF
+            return self.parse_pdf(
+                pdf_path=pdf_path, output_dir=output_dir, lang=lang, **kwargs
+            )
+
+        except Exception as e:
+            logging.error(f"Error in parse_asciidoc_file: {str(e)}")
             raise
 
     def parse_document(
@@ -1178,6 +1434,8 @@ class MineruParser(Parser):
             return self.parse_office_doc(file_path, output_dir, lang, **kwargs)
         elif ext in self.TEXT_FORMATS:
             return self.parse_text_file(file_path, output_dir, lang, **kwargs)
+        elif ext in self.ASCIIDOC_FORMATS:
+            return self.parse_asciidoc_file(file_path, output_dir, lang, **kwargs)
         else:
             # For unsupported file types, try as PDF
             logging.warning(
