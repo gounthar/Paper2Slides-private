@@ -62,7 +62,13 @@ def main():
                         help="Fast mode: parse only, no RAG indexing (direct LLM query)")
     parser.add_argument("--parallel", type=int, nargs='?', const=2, default=None,
                         help="Enable parallel slide generation with N workers (default: 2 if specified)")
-    
+    parser.add_argument("--export-prompts", action="store_true",
+                        help="Export Nano Banana prompts instead of calling image generation API")
+    parser.add_argument("--import-images", type=str, metavar="DIR",
+                        help="Import manually generated images from prompt directory to create PPTX")
+    parser.add_argument("--pptx", action="store_true",
+                        help="Generate PPTX output instead of PDF (default for prompt export mode)")
+
     args = parser.parse_args()
     
     # Setup logging
@@ -71,7 +77,26 @@ def main():
     if args.list:
         list_outputs(args.output_dir)
         return
-    
+
+    # Handle --import-images mode (standalone operation)
+    if args.import_images:
+        from paper2slides.generator.image_generator import import_generated_images
+        import_dir = Path(args.import_images)
+        if not import_dir.exists():
+            logger.error(f"Import directory not found: {import_dir}")
+            return
+
+        # Determine output path
+        output_pptx = import_dir.parent / "slides.pptx"
+        logger.info(f"Importing images from: {import_dir}")
+        missing = import_generated_images(str(import_dir), str(output_pptx))
+        if missing:
+            logger.warning(f"Missing slides: {missing}")
+            logger.info("Generate the missing images and re-run import")
+        else:
+            logger.info(f"Successfully created: {output_pptx}")
+        return
+
     if not args.input:
         parser.print_help()
         return
@@ -100,6 +125,8 @@ def main():
         "poster_density": args.density,
         "fast_mode": args.fast,
         "max_workers": args.parallel if args.parallel else 1,
+        "export_prompts": args.export_prompts,
+        "use_pptx": args.pptx or args.export_prompts,  # Default to PPTX in prompt export mode
     }
     
     # Determine paths

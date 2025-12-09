@@ -2,6 +2,9 @@
 Image Generator
 
 Generate poster/slides images from ContentPlan.
+Supports two modes:
+- "api": Direct API calls to image generation service (default)
+- "prompt": Export prompts for manual generation via web interface
 """
 import os
 import json
@@ -10,9 +13,11 @@ import time
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from PIL import Image, ImageDraw, ImageFont
+import io
 
 from .config import GenerationInput
 from .content_planner import ContentPlan, Section
@@ -77,18 +82,36 @@ def process_custom_style(client: OpenAI, user_style: str, model: str = None) -> 
 
 
 class ImageGenerator:
-    """Generate poster/slides images from ContentPlan."""
-    
+    """Generate poster/slides images from ContentPlan.
+
+    Supports two modes:
+    - "api": Direct API calls to image generation service (default)
+    - "prompt": Export prompts for manual generation via web interface
+    """
+
     def __init__(
         self,
         api_key: str = None,
         base_url: str = None,
         model: str = "google/gemini-3-pro-image-preview",
+        mode: str = "api",
+        prompt_output_dir: str = None,
     ):
+        self.mode = mode
+        self.prompt_output_dir = Path(prompt_output_dir) if prompt_output_dir else None
         self.api_key = api_key or os.getenv("IMAGE_GEN_API_KEY", "")
         self.base_url = base_url or os.getenv("IMAGE_GEN_BASE_URL", "https://openrouter.ai/api/v1")
         self.model = model
-        self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+
+        # Only initialize OpenAI client if in API mode
+        if self.mode == "api":
+            self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+        else:
+            self.client = None
+
+        # Track exported prompts for reference chain
+        self._exported_prompts: List[dict] = []
+        self._slide_counter = 0
     
     def generate(
         self,
@@ -144,10 +167,14 @@ class ImageGenerator:
         return [GeneratedImage(section_id="poster", image_data=image_data, mime_type=mime_type)]
     
     def _generate_slides(self, plan, style_name, processed_style: Optional[ProcessedStyle], all_sections_md, figure_images, max_workers: int, save_callback=None) -> List[GeneratedImage]:
-        """Generate N slide images (slides 1-2 sequential, 3+ parallel)."""
+        """Generate N slide images (slides 1-2 sequential, 3+ parallel).
+
+        In prompt export mode, all slides are generated sequentially to maintain
+        reference chain instructions.
+        """
         results = []
         total = len(plan.sections)
-        
+
         # Select layout rules based on style
         if style_name == "custom":
             layouts = SLIDE_LAYOUTS_DEFAULT
@@ -155,56 +182,16 @@ class ImageGenerator:
             layouts = SLIDE_LAYOUTS_DORAEMON
         else:
             layouts = SLIDE_LAYOUTS_ACADEMIC
-        
+
         style_ref_image = None  # Store 2nd slide as reference for all subsequent slides
-        
-        # Generate first 2 slides sequentially (slide 1: no ref, slide 2: becomes ref)
-        for i in range(min(2, total)):
-            section = plan.sections[i]
-            section_md = self._format_single_section_markdown(section, plan)
-            layout_rule = layouts.get(section.section_type, layouts["content"])
-            
-            prompt = self._build_slide_prompt(
-                style_name=style_name,
-                processed_style=processed_style,
-                sections_md=section_md,
-                layout_rule=layout_rule,
-                slide_info=f"Slide {i+1} of {total}",
-                context_md=all_sections_md,
-            )
-            
-            section_images = self._filter_images([section], figure_images)
-            reference_images = []
-            if style_ref_image:
-                reference_images.append(style_ref_image)
-            reference_images.extend(section_images)
-            
-            image_data, mime_type = self._call_model(prompt, reference_images)
-            
-            # Save 2nd slide (i=1) as style reference
-            if i == 1:
-                style_ref_image = {
-                    "figure_id": "Reference Slide",
-                    "caption": "STRICTLY MAINTAIN: same background color, same accent color, same font style, same chart/icon style. Keep visual consistency.",
-                    "base64": base64.b64encode(image_data).decode("utf-8"),
-                    "mime_type": mime_type,
-                }
-            
-            generated_img = GeneratedImage(section_id=section.id, image_data=image_data, mime_type=mime_type)
-            results.append(generated_img)
-            
-            # Save immediately if callback provided
-            if save_callback:
-                save_callback(generated_img, i, total)
-        
-        # Generate remaining slides in parallel (from 3rd onwards)
-        if total > 2:
-            results_dict = {}
-            
-            def generate_single(i, section):
+
+        # In prompt export mode, generate all slides sequentially
+        if self.mode == "prompt":
+            for i in range(total):
+                section = plan.sections[i]
                 section_md = self._format_single_section_markdown(section, plan)
                 layout_rule = layouts.get(section.section_type, layouts["content"])
-                
+
                 prompt = self._build_slide_prompt(
                     style_name=style_name,
                     processed_style=processed_style,
@@ -213,33 +200,196 @@ class ImageGenerator:
                     slide_info=f"Slide {i+1} of {total}",
                     context_md=all_sections_md,
                 )
-                
+
+                section_images = self._filter_images([section], figure_images)
+
+                # Export prompt with reference chain instructions
+                image_data, mime_type = self._export_prompt(
+                    prompt=prompt,
+                    reference_images=section_images,
+                    slide_num=i + 1,
+                    total_slides=total,
+                    section_title=section.title,
+                )
+
+                generated_img = GeneratedImage(section_id=section.id, image_data=image_data, mime_type=mime_type)
+                results.append(generated_img)
+
+                if save_callback:
+                    save_callback(generated_img, i, total)
+
+            # Generate INSTRUCTIONS.md after all prompts are exported
+            self._generate_instructions_md(total)
+
+            return results
+
+        # API mode: original behavior (first 2 sequential, rest parallel)
+        # Generate first 2 slides sequentially (slide 1: no ref, slide 2: becomes ref)
+        for i in range(min(2, total)):
+            section = plan.sections[i]
+            section_md = self._format_single_section_markdown(section, plan)
+            layout_rule = layouts.get(section.section_type, layouts["content"])
+
+            prompt = self._build_slide_prompt(
+                style_name=style_name,
+                processed_style=processed_style,
+                sections_md=section_md,
+                layout_rule=layout_rule,
+                slide_info=f"Slide {i+1} of {total}",
+                context_md=all_sections_md,
+            )
+
+            section_images = self._filter_images([section], figure_images)
+            reference_images = []
+            if style_ref_image:
+                reference_images.append(style_ref_image)
+            reference_images.extend(section_images)
+
+            image_data, mime_type = self._call_model(prompt, reference_images)
+
+            # Save 2nd slide (i=1) as style reference
+            if i == 1:
+                style_ref_image = {
+                    "figure_id": "Reference Slide",
+                    "caption": "STRICTLY MAINTAIN: same background color, same accent color, same font style, same chart/icon style. Keep visual consistency.",
+                    "base64": base64.b64encode(image_data).decode("utf-8"),
+                    "mime_type": mime_type,
+                }
+
+            generated_img = GeneratedImage(section_id=section.id, image_data=image_data, mime_type=mime_type)
+            results.append(generated_img)
+
+            # Save immediately if callback provided
+            if save_callback:
+                save_callback(generated_img, i, total)
+
+        # Generate remaining slides in parallel (from 3rd onwards)
+        if total > 2:
+            results_dict = {}
+
+            def generate_single(i, section):
+                section_md = self._format_single_section_markdown(section, plan)
+                layout_rule = layouts.get(section.section_type, layouts["content"])
+
+                prompt = self._build_slide_prompt(
+                    style_name=style_name,
+                    processed_style=processed_style,
+                    sections_md=section_md,
+                    layout_rule=layout_rule,
+                    slide_info=f"Slide {i+1} of {total}",
+                    context_md=all_sections_md,
+                )
+
                 section_images = self._filter_images([section], figure_images)
                 reference_images = [style_ref_image] if style_ref_image else []
                 reference_images.extend(section_images)
-                
+
                 image_data, mime_type = self._call_model(prompt, reference_images)
                 return i, GeneratedImage(section_id=section.id, image_data=image_data, mime_type=mime_type)
-            
+
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
                     executor.submit(generate_single, i, plan.sections[i]): i
                     for i in range(2, total)
                 }
-                
+
                 for future in as_completed(futures):
                     idx, generated_img = future.result()
                     results_dict[idx] = generated_img
-                    
+
                     # Save immediately if callback provided
                     if save_callback:
                         save_callback(generated_img, idx, total)
-            
+
             # Append in order
             for i in range(2, total):
                 results.append(results_dict[i])
-        
+
         return results
+
+    def _generate_instructions_md(self, total_slides: int):
+        """Generate INSTRUCTIONS.md file with workflow guide."""
+        if not self.prompt_output_dir:
+            return
+
+        instructions = f"""# Manual Image Generation Workflow
+
+## Overview
+This directory contains {total_slides} slide prompts for manual generation via Nano Banana Pro Chat.
+
+## Workflow
+
+### Step 1: Generate Slides in Order (Important!)
+Generate slides **in order** (1 → {total_slides}) to maintain visual consistency.
+
+The reference chain works as follows:
+- **Slide 1**: No reference needed (establishes base style)
+- **Slide 2**: Use Slide 1 as reference (becomes THE style reference)
+- **Slides 3-{total_slides}**: All use Slide 2 as reference
+
+### Step 2: For Each Slide
+
+1. Open the prompt file: `slide_XX_prompt.txt`
+2. Read the **REFERENCE CHAIN INSTRUCTION** section
+3. Upload any reference images from `slide_XX_images/` directory
+4. Copy the **RAW PROMPT** section into Nano Banana Pro Chat
+5. Generate the image
+6. Download and save as: `slide_XX_images/generated.png`
+
+### Step 3: After All Slides Generated
+
+Run the import command to create the final PPTX:
+```bash
+python -m paper2slides --import-images {self.prompt_output_dir} --output slides
+```
+
+## File Structure
+
+```
+prompts/
+├── INSTRUCTIONS.md (this file)
+├── slide_01_prompt.txt
+├── slide_01_images/
+│   ├── ref_00_*.png (reference images from paper)
+│   └── generated.png (YOU CREATE THIS)
+├── slide_02_prompt.txt
+├── slide_02_images/
+│   └── ...
+...
+└── slide_{total_slides:02d}_prompt.txt
+```
+
+## Tips for Best Results
+
+1. **Consistency**: Always upload Slide 2's generated image for slides 3+
+2. **Style**: Tell Nano Banana to "maintain exact same style as reference"
+3. **Colors**: If colors drift, explicitly mention the color palette
+4. **Quality**: If a slide doesn't match, regenerate it before continuing
+
+## Estimated Time
+- Per slide: ~2-3 minutes
+- Total: ~{total_slides * 2.5:.0f}-{total_slides * 3:.0f} minutes
+
+## Troubleshooting
+
+**Slide style doesn't match:**
+- Regenerate with stronger reference instruction
+- Upload both Slide 1 and Slide 2 as references
+
+**Image quality issues:**
+- Ask for "higher resolution" or "4K quality"
+- Simplify the prompt if too complex
+
+**Reference images missing:**
+- Check the `slide_XX_images/` directory
+- Re-run prompt export if files are missing
+"""
+
+        instructions_path = self.prompt_output_dir / "INSTRUCTIONS.md"
+        with open(instructions_path, "w", encoding="utf-8") as f:
+            f.write(instructions)
+
+        logging.getLogger(__name__).info(f"  Generated: INSTRUCTIONS.md")
     
     def _format_custom_style_for_poster(self, ps: ProcessedStyle) -> str:
         """Format ProcessedStyle into style hints string for poster."""
@@ -380,7 +530,176 @@ class ImageGenerator:
             for ref in section.figures:
                 used_ids.add(ref.figure_id)
         return [img for img in figure_images if img.get("figure_id") in used_ids]
-    
+
+    def _create_placeholder_image(self, slide_num: int, title: str = "") -> Tuple[bytes, str]:
+        """Create a placeholder image for prompt export mode."""
+        # Create 16:9 placeholder (1920x1080)
+        width, height = 1920, 1080
+        img = Image.new('RGB', (width, height), color='#F3F4F6')
+        draw = ImageDraw.Draw(img)
+
+        # Draw border
+        border_color = '#2563EB'
+        draw.rectangle([10, 10, width-10, height-10], outline=border_color, width=4)
+
+        # Draw centered text
+        text_lines = [
+            f"SLIDE {slide_num:02d}",
+            "",
+            "Placeholder Image",
+            "",
+            "Generate this slide manually using:",
+            f"slide_{slide_num:02d}_prompt.txt",
+            "",
+            "Then place the generated image as:",
+            f"slide_{slide_num:02d}_generated.png",
+        ]
+        if title:
+            text_lines.insert(1, f"({title})")
+
+        # Use default font (PIL built-in)
+        try:
+            font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
+            font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 32)
+        except (OSError, IOError):
+            font_large = ImageFont.load_default()
+            font_medium = font_large
+
+        y_position = 200
+        for i, line in enumerate(text_lines):
+            font = font_large if i == 0 else font_medium
+            color = '#2563EB' if i == 0 else '#1F2937'
+            bbox = draw.textbbox((0, 0), line, font=font)
+            text_width = bbox[2] - bbox[0]
+            x = (width - text_width) // 2
+            draw.text((x, y_position), line, fill=color, font=font)
+            y_position += 60 if i == 0 else 45
+
+        # Convert to bytes
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG')
+        return buffer.getvalue(), 'image/png'
+
+    def _save_reference_images(self, slide_dir: Path, reference_images: List[dict]) -> List[str]:
+        """Save reference images to slide directory and return filenames."""
+        saved_files = []
+        for i, img in enumerate(reference_images):
+            if not img.get("base64"):
+                continue
+            fig_id = img.get("figure_id", f"image_{i}")
+            # Sanitize filename
+            safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in fig_id)
+            ext = ".png" if "png" in img.get("mime_type", "png") else ".jpg"
+            filename = f"ref_{i:02d}_{safe_name}{ext}"
+            filepath = slide_dir / filename
+
+            img_data = base64.b64decode(img["base64"])
+            with open(filepath, "wb") as f:
+                f.write(img_data)
+            saved_files.append(filename)
+        return saved_files
+
+    def _build_reference_chain_instruction(self, slide_num: int, total_slides: int) -> str:
+        """Build instruction for reference chain (style consistency)."""
+        if slide_num == 1:
+            return """
+## REFERENCE CHAIN INSTRUCTION
+This is SLIDE 1 - no reference image needed.
+After generating this slide, save it - it will be used as reference for slide 2.
+"""
+        elif slide_num == 2:
+            return """
+## REFERENCE CHAIN INSTRUCTION
+Upload the generated image from SLIDE 1 as a reference attachment.
+Tell Nano Banana: "Use the same visual style, colors, and icon design as this reference image"
+
+After generating this slide, save it - it will be the STYLE REFERENCE for ALL remaining slides.
+"""
+        else:
+            return f"""
+## REFERENCE CHAIN INSTRUCTION
+Upload the generated image from SLIDE 2 as a reference attachment.
+Tell Nano Banana: "STRICTLY MAINTAIN: same background color, same accent color, same font style, same chart/icon style. Keep visual consistency with this reference image."
+
+This ensures consistent visual style across all {total_slides} slides.
+"""
+
+    def _export_prompt(
+        self,
+        prompt: str,
+        reference_images: List[dict],
+        slide_num: int,
+        total_slides: int,
+        section_title: str = "",
+    ) -> Tuple[bytes, str]:
+        """Export prompt and reference images for manual generation."""
+        logger = logging.getLogger(__name__)
+
+        if not self.prompt_output_dir:
+            raise ValueError("prompt_output_dir must be set for prompt export mode")
+
+        self.prompt_output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create slide-specific directory
+        slide_dir = self.prompt_output_dir / f"slide_{slide_num:02d}_images"
+        slide_dir.mkdir(exist_ok=True)
+
+        # Save reference images
+        saved_refs = self._save_reference_images(slide_dir, reference_images)
+
+        # Build reference chain instruction
+        ref_chain_instruction = self._build_reference_chain_instruction(slide_num, total_slides)
+
+        # Build complete prompt file
+        prompt_content = f"""# Slide {slide_num:02d} of {total_slides}
+{f'## {section_title}' if section_title else ''}
+
+{ref_chain_instruction}
+
+## REFERENCE IMAGES TO UPLOAD
+Directory: slide_{slide_num:02d}_images/
+"""
+        if saved_refs:
+            for ref_file in saved_refs:
+                prompt_content += f"- {ref_file}\n"
+        else:
+            prompt_content += "- (No reference images for this slide)\n"
+
+        prompt_content += f"""
+## RAW PROMPT FOR NANO BANANA
+Copy everything below this line into Nano Banana Pro Chat:
+
+---
+
+{prompt}
+
+---
+
+## AFTER GENERATION
+1. Download the generated image
+2. Save as: slide_{slide_num:02d}_images/generated.png
+3. Continue to the next slide prompt
+"""
+
+        # Save prompt file
+        prompt_file = self.prompt_output_dir / f"slide_{slide_num:02d}_prompt.txt"
+        with open(prompt_file, "w", encoding="utf-8") as f:
+            f.write(prompt_content)
+
+        logger.info(f"  Exported prompt: {prompt_file.name}")
+
+        # Track for instructions generation
+        self._exported_prompts.append({
+            "slide_num": slide_num,
+            "title": section_title,
+            "prompt_file": str(prompt_file),
+            "images_dir": str(slide_dir),
+            "reference_images": saved_refs,
+        })
+
+        # Return placeholder image
+        return self._create_placeholder_image(slide_num, section_title)
+
     def _call_model(self, prompt: str, reference_images: List[dict]) -> tuple:
         """Call the image generation model with retry logic."""
         logger = logging.getLogger(__name__)
@@ -489,3 +808,117 @@ def save_images_as_pdf(images: List[GeneratedImage], output_path: str):
             resolution=100.0,
         )
         print(f"PDF saved: {output_path}")
+
+
+def save_images_as_pptx(images: List[GeneratedImage], output_path: str, title: str = "Generated Presentation"):
+    """
+    Save generated images as a PowerPoint presentation.
+
+    Each image becomes a full-slide background image (16:9 aspect ratio).
+
+    Args:
+        images: List of GeneratedImage from ImageGenerator.generate()
+        output_path: Output PPTX file path
+        title: Presentation title (optional)
+    """
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    # Create presentation with 16:9 aspect ratio
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)  # 16:9 width
+    prs.slide_height = Inches(7.5)    # 16:9 height
+
+    # Add blank layout
+    blank_layout = prs.slide_layouts[6]  # Blank layout
+
+    for img in images:
+        # Add slide
+        slide = prs.slides.add_slide(blank_layout)
+
+        # Save image temporarily to add to slide
+        img_stream = io.BytesIO(img.image_data)
+
+        # Add image as full-slide background
+        slide.shapes.add_picture(
+            img_stream,
+            Inches(0),
+            Inches(0),
+            width=prs.slide_width,
+            height=prs.slide_height,
+        )
+
+    # Save presentation
+    prs.save(output_path)
+    print(f"PPTX saved: {output_path}")
+
+
+def import_generated_images(prompt_dir: str, output_path: str):
+    """
+    Import manually generated images from prompt export directory into PPTX.
+
+    Looks for generated.png files in each slide_XX_images/ directory.
+
+    Args:
+        prompt_dir: Directory containing slide_XX_images/ subdirectories
+        output_path: Output PPTX file path
+
+    Returns:
+        List of missing slides (if any)
+    """
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    prompt_path = Path(prompt_dir)
+
+    # Find all slide directories
+    slide_dirs = sorted(prompt_path.glob("slide_*_images"))
+    if not slide_dirs:
+        raise ValueError(f"No slide directories found in {prompt_dir}")
+
+    # Create presentation
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    blank_layout = prs.slide_layouts[6]
+
+    missing_slides = []
+    imported_count = 0
+
+    for slide_dir in slide_dirs:
+        # Extract slide number from directory name
+        dir_name = slide_dir.name  # e.g., "slide_01_images"
+        slide_num = int(dir_name.split("_")[1])
+
+        # Look for generated image
+        generated_img = slide_dir / "generated.png"
+        if not generated_img.exists():
+            # Try other common names
+            for alt_name in ["generated.jpg", "slide.png", "slide.jpg", "output.png"]:
+                alt_path = slide_dir / alt_name
+                if alt_path.exists():
+                    generated_img = alt_path
+                    break
+
+        if not generated_img.exists():
+            missing_slides.append(slide_num)
+            print(f"Warning: Missing generated image for slide {slide_num}")
+            continue
+
+        # Add slide with image
+        slide = prs.slides.add_slide(blank_layout)
+        slide.shapes.add_picture(
+            str(generated_img),
+            Inches(0),
+            Inches(0),
+            width=prs.slide_width,
+            height=prs.slide_height,
+        )
+        imported_count += 1
+
+    if imported_count > 0:
+        prs.save(output_path)
+        print(f"PPTX saved: {output_path} ({imported_count} slides)")
+
+    return missing_slides
