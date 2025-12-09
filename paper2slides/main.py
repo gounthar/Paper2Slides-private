@@ -85,16 +85,23 @@ def main():
         if not import_dir.exists():
             logger.error(f"Import directory not found: {import_dir}")
             return
+        if not import_dir.is_dir():
+            logger.error(f"Import path is not a directory: {import_dir}")
+            return
 
         # Determine output path
         output_pptx = import_dir.parent / "slides.pptx"
         logger.info(f"Importing images from: {import_dir}")
-        missing = import_generated_images(str(import_dir), str(output_pptx))
-        if missing:
-            logger.warning(f"Missing slides: {missing}")
-            logger.info("Generate the missing images and re-run import")
-        else:
-            logger.info(f"Successfully created: {output_pptx}")
+        try:
+            missing = import_generated_images(str(import_dir), str(output_pptx))
+            if missing:
+                logger.warning(f"Missing slides: {missing}")
+                logger.info("Generate the missing images and re-run import")
+            else:
+                logger.info(f"Successfully created: {output_pptx}")
+        except ValueError as e:
+            logger.error(f"Import failed: {e}")
+            logger.info("Ensure the directory contains slide_XX_images/ subdirectories with generated.png files")
         return
 
     if not args.input:
@@ -115,10 +122,14 @@ def main():
     
     # Build config
     style_type, custom_style = parse_style(args.style)
+
+    # Prompt-export workflow is slides-only; override output type in that case
+    output_type = "slides" if args.export_prompts else args.output
+
     config = {
         "input_path": input_path,
         "content_type": args.content,
-        "output_type": args.output,
+        "output_type": output_type,
         "style": style_type,
         "custom_style": custom_style,
         "slides_length": args.length,

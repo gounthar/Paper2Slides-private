@@ -136,11 +136,11 @@ async def run_generate_stage(base_dir: Path, config_dir: Path, config: Dict) -> 
         if use_pptx:
             pptx_path = output_subdir / "slides.pptx"
             save_images_as_pptx(images, str(pptx_path))
-            logger.info(f"  Saved: slides.pptx")
+            logger.info("  Saved: slides.pptx")
         else:
             pdf_path = output_subdir / "slides.pdf"
             save_images_as_pdf(images, str(pdf_path))
-            logger.info(f"  Saved: slides.pdf")
+            logger.info("  Saved: slides.pdf")
 
     logger.info("")
     logger.info(f"Output: {output_subdir}")

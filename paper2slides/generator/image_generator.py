@@ -340,7 +340,7 @@ The reference chain works as follows:
 
 Run the import command to create the final PPTX:
 ```bash
-python -m paper2slides --import-images {self.prompt_output_dir} --output slides
+python -m paper2slides --import-images {self.prompt_output_dir}
 ```
 
 ## File Structure
@@ -389,7 +389,7 @@ prompts/
         with open(instructions_path, "w", encoding="utf-8") as f:
             f.write(instructions)
 
-        logging.getLogger(__name__).info(f"  Generated: INSTRUCTIONS.md")
+        logging.getLogger(__name__).info("  Generated: INSTRUCTIONS.md")
     
     def _format_custom_style_for_poster(self, ps: ProcessedStyle) -> str:
         """Format ProcessedStyle into style hints string for poster."""
@@ -822,13 +822,18 @@ def save_images_as_pptx(images: List[GeneratedImage], output_path: str, title: s
         title: Presentation title (optional)
     """
     from pptx import Presentation
-    from pptx.util import Inches, Pt
-    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    from pptx.util import Inches
+
+    logger = logging.getLogger(__name__)
 
     # Create presentation with 16:9 aspect ratio
     prs = Presentation()
     prs.slide_width = Inches(13.333)  # 16:9 width
     prs.slide_height = Inches(7.5)    # 16:9 height
+
+    # Set presentation title in metadata
+    if title:
+        prs.core_properties.title = title
 
     # Add blank layout
     blank_layout = prs.slide_layouts[6]  # Blank layout
@@ -851,7 +856,7 @@ def save_images_as_pptx(images: List[GeneratedImage], output_path: str, title: s
 
     # Save presentation
     prs.save(output_path)
-    print(f"PPTX saved: {output_path}")
+    logger.info(f"PPTX saved: {output_path}")
 
 
 def import_generated_images(prompt_dir: str, output_path: str):
@@ -870,6 +875,7 @@ def import_generated_images(prompt_dir: str, output_path: str):
     from pptx import Presentation
     from pptx.util import Inches
 
+    logger = logging.getLogger(__name__)
     prompt_path = Path(prompt_dir)
 
     # Find all slide directories
@@ -903,7 +909,7 @@ def import_generated_images(prompt_dir: str, output_path: str):
 
         if not generated_img.exists():
             missing_slides.append(slide_num)
-            print(f"Warning: Missing generated image for slide {slide_num}")
+            logger.warning(f"Missing generated image for slide {slide_num}")
             continue
 
         # Add slide with image
@@ -919,6 +925,6 @@ def import_generated_images(prompt_dir: str, output_path: str):
 
     if imported_count > 0:
         prs.save(output_path)
-        print(f"PPTX saved: {output_path} ({imported_count} slides)")
+        logger.info(f"PPTX saved: {output_path} ({imported_count} slides)")
 
     return missing_slides
