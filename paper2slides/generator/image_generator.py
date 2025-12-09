@@ -150,11 +150,11 @@ class ImageGenerator:
 
     def __init__(
         self,
-        api_key: str = None,
-        base_url: str = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
         model: str = "google/gemini-3-pro-image-preview",
         mode: str = "api",
-        prompt_output_dir: str = None,
+        prompt_output_dir: Optional[str] = None,
     ):
         self.mode = mode
         self.prompt_output_dir = Path(prompt_output_dir) if prompt_output_dir else None
