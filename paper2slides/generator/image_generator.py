@@ -19,6 +19,56 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image, ImageDraw, ImageFont
 import io
 
+# Constants for placeholder images
+PLACEHOLDER_BG_COLOR = '#F3F4F6'  # Light gray background
+PLACEHOLDER_BORDER_COLOR = '#2563EB'  # Blue border
+PLACEHOLDER_TITLE_COLOR = '#2563EB'  # Blue for slide number
+PLACEHOLDER_TEXT_COLOR = '#1F2937'  # Dark gray text
+PLACEHOLDER_WIDTH = 1920
+PLACEHOLDER_HEIGHT = 1080
+PLACEHOLDER_BORDER_WIDTH = 4
+
+# Filename constants
+GENERATED_IMAGE_FILENAME = 'generated.png'
+SLIDE_DIR_TEMPLATE = 'slide_{:02d}_images'
+SLIDE_PROMPT_TEMPLATE = 'slide_{:02d}_prompt.txt'
+INSTRUCTIONS_FILENAME = 'INSTRUCTIONS.md'
+
+# Cross-platform font paths (tried in order)
+FONT_PATHS_BOLD = [
+    # Linux
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/TTF/DejaVuSans-Bold.ttf',
+    # macOS
+    '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
+    '/Library/Fonts/Arial Bold.ttf',
+    # Windows
+    'C:/Windows/Fonts/arialbd.ttf',
+    'C:/Windows/Fonts/segoeui.ttf',
+]
+FONT_PATHS_REGULAR = [
+    # Linux
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/TTF/DejaVuSans.ttf',
+    # macOS
+    '/System/Library/Fonts/Supplemental/Arial.ttf',
+    '/Library/Fonts/Arial.ttf',
+    # Windows
+    'C:/Windows/Fonts/arial.ttf',
+    'C:/Windows/Fonts/segoeui.ttf',
+]
+
+
+def _load_font(font_paths: list, size: int):
+    """Load font from first available path, fallback to default."""
+    for path in font_paths:
+        try:
+            return ImageFont.truetype(path, size)
+        except (OSError, IOError):
+            continue
+    return ImageFont.load_default()
+
+
 from .config import GenerationInput
 from .content_planner import ContentPlan, Section
 from ..prompts.image_generation import (
@@ -103,11 +153,20 @@ class ImageGenerator:
         self.base_url = base_url or os.getenv("IMAGE_GEN_BASE_URL", "https://openrouter.ai/api/v1")
         self.model = model
 
-        # Only initialize OpenAI client if in API mode
+        # Initialize image generation client (only in API mode)
         if self.mode == "api":
             self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
         else:
             self.client = None
+
+        # Initialize LLM client for style processing (needed in both modes for custom styles)
+        # Uses RAG_LLM_API_KEY which is typically an OpenAI key
+        llm_api_key = os.getenv("RAG_LLM_API_KEY", "")
+        llm_base_url = os.getenv("RAG_LLM_BASE_URL", "https://api.openai.com/v1")
+        if llm_api_key:
+            self.llm_client = OpenAI(api_key=llm_api_key, base_url=llm_base_url)
+        else:
+            self.llm_client = None
 
         # Track exported prompts for reference chain
         self._exported_prompts: List[dict] = []
@@ -139,7 +198,14 @@ class ImageGenerator:
         # Process custom style with LLM if needed
         processed_style = None
         if style_name == "custom" and custom_style:
-            processed_style = process_custom_style(self.client, custom_style)
+            # Use llm_client for style processing (works in both API and prompt modes)
+            style_client = self.llm_client or self.client
+            if style_client is None:
+                raise ValueError(
+                    "Custom style requires an LLM client. "
+                    "Set RAG_LLM_API_KEY environment variable for prompt export mode."
+                )
+            processed_style = process_custom_style(style_client, custom_style)
             if not processed_style.valid:
                 raise ValueError(f"Invalid custom style: {processed_style.error}")
         
@@ -147,6 +213,12 @@ class ImageGenerator:
         all_images = self._filter_images(plan.sections, figure_images)
         
         if plan.output_type == "poster":
+            # Prompt export mode doesn't support posters (only slides workflow)
+            if self.mode == "prompt":
+                raise ValueError(
+                    "Prompt export mode only supports slides output. "
+                    "Use --output slides with --export-prompts."
+                )
             result = self._generate_poster(style_name, processed_style, all_sections_md, all_images)
             if save_callback and result:
                 save_callback(result[0], 0, 1)
@@ -334,7 +406,7 @@ The reference chain works as follows:
 3. Upload any reference images from `slide_XX_images/` directory
 4. Copy the **RAW PROMPT** section into Nano Banana Pro Chat
 5. Generate the image
-6. Download and save as: `slide_XX_images/generated.png`
+6. Download and save as: `slide_XX_images/{GENERATED_IMAGE_FILENAME}`
 
 ### Step 3: After All Slides Generated
 
@@ -347,11 +419,11 @@ python -m paper2slides --import-images {self.prompt_output_dir}
 
 ```
 prompts/
-├── INSTRUCTIONS.md (this file)
+├── {INSTRUCTIONS_FILENAME} (this file)
 ├── slide_01_prompt.txt
 ├── slide_01_images/
 │   ├── ref_00_*.png (reference images from paper)
-│   └── generated.png (YOU CREATE THIS)
+│   └── {GENERATED_IMAGE_FILENAME} (YOU CREATE THIS)
 ├── slide_02_prompt.txt
 ├── slide_02_images/
 │   └── ...
@@ -385,11 +457,11 @@ prompts/
 - Re-run prompt export if files are missing
 """
 
-        instructions_path = self.prompt_output_dir / "INSTRUCTIONS.md"
+        instructions_path = self.prompt_output_dir / INSTRUCTIONS_FILENAME
         with open(instructions_path, "w", encoding="utf-8") as f:
             f.write(instructions)
 
-        logging.getLogger(__name__).info("  Generated: INSTRUCTIONS.md")
+        logging.getLogger(__name__).info(f"  Generated: {INSTRUCTIONS_FILENAME}")
     
     def _format_custom_style_for_poster(self, ps: ProcessedStyle) -> str:
         """Format ProcessedStyle into style hints string for poster."""
@@ -533,14 +605,20 @@ prompts/
 
     def _create_placeholder_image(self, slide_num: int, title: str = "") -> Tuple[bytes, str]:
         """Create a placeholder image for prompt export mode."""
-        # Create 16:9 placeholder (1920x1080)
-        width, height = 1920, 1080
-        img = Image.new('RGB', (width, height), color='#F3F4F6')
+        # Create 16:9 placeholder
+        img = Image.new('RGB', (PLACEHOLDER_WIDTH, PLACEHOLDER_HEIGHT), color=PLACEHOLDER_BG_COLOR)
         draw = ImageDraw.Draw(img)
 
         # Draw border
-        border_color = '#2563EB'
-        draw.rectangle([10, 10, width-10, height-10], outline=border_color, width=4)
+        draw.rectangle(
+            [10, 10, PLACEHOLDER_WIDTH - 10, PLACEHOLDER_HEIGHT - 10],
+            outline=PLACEHOLDER_BORDER_COLOR,
+            width=PLACEHOLDER_BORDER_WIDTH,
+        )
+
+        # Build slide directory and filename using constants
+        slide_dir = SLIDE_DIR_TEMPLATE.format(slide_num)
+        prompt_file = SLIDE_PROMPT_TEMPLATE.format(slide_num)
 
         # Draw centered text
         text_lines = [
@@ -549,29 +627,25 @@ prompts/
             "Placeholder Image",
             "",
             "Generate this slide manually using:",
-            f"slide_{slide_num:02d}_prompt.txt",
+            prompt_file,
             "",
             "Then place the generated image as:",
-            f"slide_{slide_num:02d}_generated.png",
+            f"{slide_dir}/{GENERATED_IMAGE_FILENAME}",
         ]
         if title:
             text_lines.insert(1, f"({title})")
 
-        # Use default font (PIL built-in)
-        try:
-            font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
-            font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 32)
-        except (OSError, IOError):
-            font_large = ImageFont.load_default()
-            font_medium = font_large
+        # Load fonts with cross-platform support
+        font_large = _load_font(FONT_PATHS_BOLD, 48)
+        font_medium = _load_font(FONT_PATHS_REGULAR, 32)
 
         y_position = 200
         for i, line in enumerate(text_lines):
             font = font_large if i == 0 else font_medium
-            color = '#2563EB' if i == 0 else '#1F2937'
+            color = PLACEHOLDER_TITLE_COLOR if i == 0 else PLACEHOLDER_TEXT_COLOR
             bbox = draw.textbbox((0, 0), line, font=font)
             text_width = bbox[2] - bbox[0]
-            x = (width - text_width) // 2
+            x = (PLACEHOLDER_WIDTH - text_width) // 2
             draw.text((x, y_position), line, fill=color, font=font)
             y_position += 60 if i == 0 else 45
 
@@ -641,7 +715,7 @@ This ensures consistent visual style across all {total_slides} slides.
         self.prompt_output_dir.mkdir(parents=True, exist_ok=True)
 
         # Create slide-specific directory
-        slide_dir = self.prompt_output_dir / f"slide_{slide_num:02d}_images"
+        slide_dir = self.prompt_output_dir / SLIDE_DIR_TEMPLATE.format(slide_num)
         slide_dir.mkdir(exist_ok=True)
 
         # Save reference images
@@ -650,6 +724,9 @@ This ensures consistent visual style across all {total_slides} slides.
         # Build reference chain instruction
         ref_chain_instruction = self._build_reference_chain_instruction(slide_num, total_slides)
 
+        # Build slide directory name using constant
+        slide_dir_name = SLIDE_DIR_TEMPLATE.format(slide_num)
+
         # Build complete prompt file
         prompt_content = f"""# Slide {slide_num:02d} of {total_slides}
 {f'## {section_title}' if section_title else ''}
@@ -657,7 +734,7 @@ This ensures consistent visual style across all {total_slides} slides.
 {ref_chain_instruction}
 
 ## REFERENCE IMAGES TO UPLOAD
-Directory: slide_{slide_num:02d}_images/
+Directory: {slide_dir_name}/
 """
         if saved_refs:
             for ref_file in saved_refs:
@@ -677,12 +754,12 @@ Copy everything below this line into Nano Banana Pro Chat:
 
 ## AFTER GENERATION
 1. Download the generated image
-2. Save as: slide_{slide_num:02d}_images/generated.png
+2. Save as: {slide_dir_name}/{GENERATED_IMAGE_FILENAME}
 3. Continue to the next slide prompt
 """
 
         # Save prompt file
-        prompt_file = self.prompt_output_dir / f"slide_{slide_num:02d}_prompt.txt"
+        prompt_file = self.prompt_output_dir / SLIDE_PROMPT_TEMPLATE.format(slide_num)
         with open(prompt_file, "w", encoding="utf-8") as f:
             f.write(prompt_content)
 
@@ -898,10 +975,10 @@ def import_generated_images(prompt_dir: str, output_path: str):
         slide_num = int(dir_name.split("_")[1])
 
         # Look for generated image
-        generated_img = slide_dir / "generated.png"
+        generated_img = slide_dir / GENERATED_IMAGE_FILENAME
         if not generated_img.exists():
             # Try other common names
-            for alt_name in ["generated.jpg", "slide.png", "slide.jpg", "output.png"]:
+            for alt_name in ["generated.jpg", "generated.jpeg", "slide.png", "slide.jpg", "output.png"]:
                 alt_path = slide_dir / alt_name
                 if alt_path.exists():
                     generated_img = alt_path
