@@ -476,6 +476,22 @@ class Parser:
             logging.info(f"Converting {adoc_path.name} to PDF using asciidoctor-pdf...")
 
             import platform
+            import os
+
+            # Expand PATH to include common gem installation directories
+            env = os.environ.copy()
+            home = os.path.expanduser("~")
+            gem_paths = [
+                f"{home}/.local/share/gem/ruby/3.3.0/bin",
+                f"{home}/.local/share/gem/ruby/3.2.0/bin",
+                f"{home}/.local/share/gem/ruby/3.1.0/bin",
+                f"{home}/.gem/ruby/3.3.0/bin",
+                f"{home}/.gem/ruby/3.2.0/bin",
+                "/usr/local/bin",
+            ]
+            existing_paths = [p for p in gem_paths if Path(p).exists()]
+            if existing_paths:
+                env["PATH"] = ":".join(existing_paths) + ":" + env.get("PATH", "")
 
             # Try asciidoctor-pdf first, then fall back to asciidoctor + wkhtmltopdf
             conversion_successful = False
@@ -492,6 +508,7 @@ class Parser:
                 "timeout": 120,
                 "encoding": "utf-8",
                 "errors": "ignore",
+                "env": env,
             }
 
             if platform.system() == "Windows":
@@ -536,14 +553,31 @@ class Parser:
                 except Exception as e:
                     logging.warning(f"Fallback conversion failed: {e}")
 
+            # Fallback: pandoc (can also convert AsciiDoc)
+            if not conversion_successful:
+                logging.info("Trying fallback: pandoc...")
+                try:
+                    # Try pandoc with different PDF engines
+                    for engine in ["xelatex", "pdflatex", "wkhtmltopdf"]:
+                        try:
+                            cmd = ["pandoc", "-f", "asciidoc", str(adoc_path), "-o", str(pdf_path), f"--pdf-engine={engine}"]
+                            result = subprocess.run(cmd, **subprocess_kwargs)
+                            if result.returncode == 0 and pdf_path.exists() and pdf_path.stat().st_size > 100:
+                                conversion_successful = True
+                                logging.info(f"Successfully converted via pandoc + {engine}")
+                                break
+                        except Exception:
+                            continue
+                except Exception as e:
+                    logging.warning(f"Pandoc fallback failed: {e}")
+
             if not conversion_successful:
                 raise RuntimeError(
                     f"AsciiDoc conversion failed for {adoc_path.name}. "
-                    f"Please install asciidoctor-pdf:\n"
-                    "- Ruby: gem install asciidoctor-pdf\n"
-                    "- macOS: brew install asciidoctor\n"
-                    "- Ubuntu/Debian: sudo apt-get install asciidoctor\n"
-                    "Or install asciidoctor + wkhtmltopdf as fallback."
+                    f"Please install one of:\n"
+                    "- asciidoctor-pdf: gem install asciidoctor-pdf\n"
+                    "- asciidoctor + wkhtmltopdf\n"
+                    "- pandoc + texlive: apt-get install pandoc texlive-xetex"
                 )
 
             # Validate the generated PDF
