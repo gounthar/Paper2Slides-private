@@ -982,6 +982,7 @@ def import_generated_images(prompt_dir: str, output_path: str):
     Import manually generated images from prompt export directory into PPTX.
 
     Looks for generated.png files in each slide_XX_images/ directory.
+    Also imports speaker notes from checkpoint_plan.json if available.
 
     Args:
         prompt_dir: Directory containing slide_XX_images/ subdirectories
@@ -990,6 +991,7 @@ def import_generated_images(prompt_dir: str, output_path: str):
     Returns:
         List of missing slides (if any)
     """
+    import json
     from pptx import Presentation
     from pptx.util import Inches
 
@@ -1000,6 +1002,37 @@ def import_generated_images(prompt_dir: str, output_path: str):
     slide_dirs = sorted(prompt_path.glob("slide_*_images"))
     if not slide_dirs:
         raise ValueError(f"No slide directories found in {prompt_dir}")
+
+    # Load speaker notes from checkpoint_plan.json if available
+    # Try multiple locations: parent (timestamp dir) and grandparent (style dir)
+    speaker_notes = {}
+    checkpoint_path = None
+    for candidate in [
+        prompt_path.parent / "checkpoint_plan.json",           # prompts/../
+        prompt_path.parent.parent / "checkpoint_plan.json",    # prompts/../../
+    ]:
+        if candidate.exists():
+            checkpoint_path = candidate
+            break
+
+    if checkpoint_path:
+        try:
+            with open(checkpoint_path, "r", encoding="utf-8") as f:
+                checkpoint_data = json.load(f)
+            plan = checkpoint_data.get("plan", {})
+            sections = plan.get("sections", [])
+            for section in sections:
+                slide_id = section.get("id", "")  # e.g., "slide_01"
+                if slide_id.startswith("slide_"):
+                    slide_num = int(slide_id.split("_")[1])
+                    title = section.get("title", "")
+                    content = section.get("content", "")
+                    # Combine title and content for speaker notes
+                    notes_text = f"{title}\n\n{content}" if title else content
+                    speaker_notes[slide_num] = notes_text
+            logger.info(f"Loaded speaker notes for {len(speaker_notes)} slides")
+        except Exception as e:
+            logger.warning(f"Could not load speaker notes: {e}")
 
     # Create presentation
     prs = Presentation()
@@ -1039,6 +1072,12 @@ def import_generated_images(prompt_dir: str, output_path: str):
             width=prs.slide_width,
             height=prs.slide_height,
         )
+
+        # Add speaker notes if available
+        if slide_num in speaker_notes:
+            notes_slide = slide.notes_slide
+            notes_slide.notes_text_frame.text = speaker_notes[slide_num]
+
         imported_count += 1
 
     if imported_count == 0:
