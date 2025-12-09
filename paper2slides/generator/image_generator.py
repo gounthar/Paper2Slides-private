@@ -1042,10 +1042,12 @@ def import_generated_images(prompt_dir: str, output_path: str):
         imported_count += 1
 
     if imported_count == 0:
-        raise ValueError(
+        error_msg = (
             f"No generated images found in {prompt_dir}. "
             f"Expected '{GENERATED_IMAGE_FILENAME}' in each slide_XX_images/ directory."
         )
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
     prs.save(output_path)
     logger.info(f"PPTX saved: {output_path} ({imported_count} slides)")
