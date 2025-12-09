@@ -8,6 +8,7 @@ tqdm
 # Image Processing
 Pillow>=10.0.0
 reportlab>=4.0.0
+python-pptx>=0.6.21
 
 # API
 openai>=1.0.0
