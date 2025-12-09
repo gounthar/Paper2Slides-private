@@ -227,8 +227,7 @@ class Parser:
                 raise FileNotFoundError(f"Text file does not exist: {text_path}")
 
             # Supported text formats
-            supported_text_formats = {".txt", ".md"}
-            if text_path.suffix.lower() not in supported_text_formats:
+            if text_path.suffix.lower() not in Parser.TEXT_FORMATS:
                 raise ValueError(f"Unsupported text format: {text_path.suffix}")
 
             # Read the text content
@@ -492,7 +491,8 @@ class Parser:
             ]
             existing_paths = [p for p in gem_paths if Path(p).exists()]
             if existing_paths:
-                env["PATH"] = ":".join(existing_paths) + ":" + env.get("PATH", "")
+                extra = os.pathsep.join(existing_paths)
+                env["PATH"] = extra + os.pathsep + env.get("PATH", "")
 
             # Try asciidoctor-pdf first, then fall back to asciidoctor + wkhtmltopdf
             conversion_successful = False
@@ -571,9 +571,10 @@ class Parser:
                                 logging.info(f"Successfully converted via pandoc + {engine}")
                                 break
                         except Exception:
+                            logging.debug(f"pandoc with {engine} failed for AsciiDoc")
                             continue
-                except Exception as e:
-                    logging.warning(f"Pandoc fallback failed: {e}")
+                except Exception:
+                    logging.warning("Pandoc fallback failed")
 
             if not conversion_successful:
                 raise RuntimeError(
@@ -593,7 +594,7 @@ class Parser:
             logging.info(f"Generated PDF: {pdf_path.name} ({pdf_path.stat().st_size / 1024:.1f} KB)")
             return pdf_path
 
-        except Exception as e:
+        except Exception:
             logging.exception("Error in convert_asciidoc_to_pdf")
             raise
 
@@ -681,7 +682,7 @@ class Parser:
             logging.info(f"Generated PDF: {pdf_path.name} ({pdf_path.stat().st_size / 1024:.1f} KB)")
             return pdf_path
 
-        except Exception as e:
+        except Exception:
             logging.exception("Error in convert_markdown_to_pdf_pandoc")
             raise
 
@@ -1402,13 +1403,9 @@ class MineruParser(Parser):
         try:
             text_path = Path(text_path)
 
-            # Use pandoc for markdown if available (better quality)
+            # Use pandoc for markdown if available (handles fallback to ReportLab internally)
             if text_path.suffix.lower() == ".md":
-                try:
-                    pdf_path = self.convert_markdown_to_pdf_pandoc(text_path, output_dir)
-                except Exception:
-                    # Fall back to ReportLab
-                    pdf_path = self.convert_text_to_pdf(text_path, output_dir)
+                pdf_path = self.convert_markdown_to_pdf_pandoc(text_path, output_dir)
             else:
                 pdf_path = self.convert_text_to_pdf(text_path, output_dir)
 
@@ -1417,8 +1414,8 @@ class MineruParser(Parser):
                 pdf_path=pdf_path, output_dir=output_dir, lang=lang, **kwargs
             )
 
-        except Exception as e:
-            logging.error(f"Error in parse_text_file: {str(e)}")
+        except Exception:
+            logging.exception("Error in parse_text_file")
             raise
 
     def parse_asciidoc_file(
@@ -1451,7 +1448,7 @@ class MineruParser(Parser):
                 pdf_path=pdf_path, output_dir=output_dir, lang=lang, **kwargs
             )
 
-        except Exception as e:
+        except Exception:
             logging.exception("Error in parse_asciidoc_file")
             raise
 
