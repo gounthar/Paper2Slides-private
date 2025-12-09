@@ -23,7 +23,7 @@ Turns your **research papers**, **reports**, and **documents** into **profession
 
 ### ✨ Key Features
 - 📄 **Universal Document Support**<br>
-  Seamlessly process PDF, Word, Excel, PowerPoint, Markdown, and multiple file formats simultaneously.
+  Seamlessly process PDF, Word, Excel, PowerPoint, Markdown, AsciiDoc, and multiple file formats simultaneously.
   
 - 🎯 **Comprehensive Content Extraction**<br>
   RAG-powered mechanism ensures every critical insight, figure, and data point is captured with precision.
