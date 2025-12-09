@@ -104,6 +104,7 @@ class BatchParser:
             self.parser.OFFICE_FORMATS
             | self.parser.IMAGE_FORMATS
             | self.parser.TEXT_FORMATS
+            | self.parser.ASCIIDOC_FORMATS
             | {".pdf"}
         )
 
