@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import argparse
 import base64
+import platform
 import subprocess
 import tempfile
 import logging
@@ -102,7 +103,6 @@ class Parser:
                 logging.info(f"Converting {doc_path.name} to PDF using LibreOffice...")
 
                 # Prepare subprocess parameters to hide console window on Windows
-                import platform
 
                 # Try LibreOffice commands in order of preference
                 commands_to_try = ["libreoffice", "soffice"]
@@ -308,7 +308,6 @@ class Parser:
                 # Try to register a font that supports Chinese characters
                 try:
                     # Try to use system fonts that support Chinese
-                    import platform
 
                     system = platform.system()
                     if system == "Windows":
@@ -475,7 +474,6 @@ class Parser:
 
             logging.info(f"Converting {adoc_path.name} to PDF using asciidoctor-pdf...")
 
-            import platform
             import os
 
             # Expand PATH to include common gem installation directories
@@ -630,7 +628,6 @@ class Parser:
 
             logging.info(f"Converting {md_path.name} to PDF using pandoc...")
 
-            import platform
 
             subprocess_kwargs = {
                 "capture_output": True,
@@ -924,7 +921,6 @@ class MineruParser(Parser):
 
         try:
             # Prepare subprocess parameters to hide console window on Windows
-            import platform
             import threading
             from queue import Queue, Empty
 
@@ -1514,7 +1510,6 @@ class MineruParser(Parser):
         """
         try:
             # Prepare subprocess parameters to hide console window on Windows
-            import platform
 
             subprocess_kwargs = {
                 "capture_output": True,
@@ -1691,7 +1686,6 @@ class DoclingParser(Parser):
 
         try:
             # Prepare subprocess parameters to hide console window on Windows
-            import platform
 
             docling_subprocess_kwargs = {
                 "capture_output": True,
@@ -1993,7 +1987,6 @@ class DoclingParser(Parser):
         """
         try:
             # Prepare subprocess parameters to hide console window on Windows
-            import platform
 
             subprocess_kwargs = {
                 "capture_output": True,
