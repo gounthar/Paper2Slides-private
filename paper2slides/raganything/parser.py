@@ -832,6 +832,24 @@ class MineruParser(Parser):
         super().__init__()
 
     @staticmethod
+    def _detect_best_device() -> str:
+        """
+        Auto-detect the best available device for inference.
+
+        Returns:
+            str: Device string ('cuda', 'cuda:0', 'mps', or 'cpu')
+        """
+        try:
+            import torch
+            if torch.cuda.is_available():
+                return "cuda"
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                return "mps"
+        except ImportError:
+            pass
+        return "cpu"
+
+    @staticmethod
     def _run_mineru_command(
         input_path: Union[str, Path],
         output_dir: Union[str, Path],
@@ -887,8 +905,11 @@ class MineruParser(Parser):
             cmd.extend(["-f", "false"])
         if not table:
             cmd.extend(["-t", "false"])
-        if device:
-            cmd.extend(["-d", device])
+        # Auto-detect best device if not specified
+        if device is None:
+            device = MineruParser._detect_best_device()
+            logging.info(f"Auto-detected device: {device}")
+        cmd.extend(["-d", device])
         if vlm_url:
             cmd.extend(["-u", vlm_url])
 
