@@ -15,15 +15,18 @@ from __future__ import annotations
 import json
 import argparse
 import base64
+import os
 import platform
 import subprocess
 import tempfile
 import logging
 from pathlib import Path
 from typing import (
+    ClassVar,
     Dict,
     List,
     Optional,
+    Set,
     Union,
     Tuple,
     Any,
@@ -52,16 +55,16 @@ class Parser:
     """
 
     # Define common file formats
-    OFFICE_FORMATS = {".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"}
-    IMAGE_FORMATS = {".png", ".jpeg", ".jpg", ".bmp", ".tiff", ".tif", ".gif", ".webp"}
-    TEXT_FORMATS = {".txt", ".md"}
-    ASCIIDOC_FORMATS = {".adoc", ".asciidoc", ".asc"}
+    OFFICE_FORMATS: ClassVar[Set[str]] = {".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"}
+    IMAGE_FORMATS: ClassVar[Set[str]] = {".png", ".jpeg", ".jpg", ".bmp", ".tiff", ".tif", ".gif", ".webp"}
+    TEXT_FORMATS: ClassVar[Set[str]] = {".txt", ".md"}
+    ASCIIDOC_FORMATS: ClassVar[Set[str]] = {".adoc", ".asciidoc", ".asc"}
 
     # Minimum valid PDF size in bytes (smaller than this likely indicates corruption)
-    MIN_PDF_SIZE_BYTES = 100
+    MIN_PDF_SIZE_BYTES: ClassVar[int] = 100
 
     # Class-level logger
-    logger = logging.getLogger(__name__)
+    logger: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
     def __init__(self) -> None:
         """Initialize the base parser."""
@@ -476,8 +479,6 @@ class Parser:
 
             logging.info(f"Converting {adoc_path.name} to PDF using asciidoctor-pdf...")
 
-            import os
-
             # Expand PATH to include common gem installation directories
             env = os.environ.copy()
             home = os.path.expanduser("~")
@@ -593,7 +594,7 @@ class Parser:
             return pdf_path
 
         except Exception as e:
-            logging.error(f"Error in convert_asciidoc_to_pdf: {str(e)}")
+            logging.exception("Error in convert_asciidoc_to_pdf")
             raise
 
     @staticmethod
@@ -681,7 +682,7 @@ class Parser:
             return pdf_path
 
         except Exception as e:
-            logging.error(f"Error in convert_markdown_to_pdf_pandoc: {str(e)}")
+            logging.exception("Error in convert_markdown_to_pdf_pandoc")
             raise
 
     @staticmethod
@@ -1451,7 +1452,7 @@ class MineruParser(Parser):
             )
 
         except Exception as e:
-            logging.error(f"Error in parse_asciidoc_file: {str(e)}")
+            logging.exception("Error in parse_asciidoc_file")
             raise
 
     def parse_document(
