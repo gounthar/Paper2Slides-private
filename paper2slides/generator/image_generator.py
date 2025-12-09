@@ -34,6 +34,15 @@ SLIDE_DIR_TEMPLATE = 'slide_{:02d}_images'
 SLIDE_PROMPT_TEMPLATE = 'slide_{:02d}_prompt.txt'
 INSTRUCTIONS_FILENAME = 'INSTRUCTIONS.md'
 
+# Alternative filenames to check when importing (fallbacks for generated.png)
+IMPORT_ALTERNATIVE_FILENAMES = [
+    'generated.jpg',
+    'generated.jpeg',
+    'slide.png',
+    'slide.jpg',
+    'output.png',
+]
+
 # Cross-platform font paths (tried in order)
 FONT_PATHS_BOLD = [
     # Linux
@@ -239,14 +248,12 @@ class ImageGenerator:
         return [GeneratedImage(section_id="poster", image_data=image_data, mime_type=mime_type)]
     
     def _generate_slides(self, plan, style_name, processed_style: Optional[ProcessedStyle], all_sections_md, figure_images, max_workers: int, save_callback=None) -> List[GeneratedImage]:
-        """Generate N slide images (slides 1-2 sequential, 3+ parallel).
+        """Generate N slide images.
 
-        In prompt export mode, all slides are generated sequentially to maintain
-        reference chain instructions.
+        Dispatches to mode-specific implementation:
+        - prompt mode: Sequential export for manual generation
+        - api mode: First 2 sequential, rest parallel for efficiency
         """
-        results = []
-        total = len(plan.sections)
-
         # Select layout rules based on style
         if style_name == "custom":
             layouts = SLIDE_LAYOUTS_DEFAULT
@@ -255,47 +262,81 @@ class ImageGenerator:
         else:
             layouts = SLIDE_LAYOUTS_ACADEMIC
 
+        if self.mode == "prompt":
+            return self._generate_slides_prompt_mode(
+                plan, style_name, processed_style, all_sections_md, figure_images, layouts, save_callback
+            )
+        else:
+            return self._generate_slides_api_mode(
+                plan, style_name, processed_style, all_sections_md, figure_images, layouts, max_workers, save_callback
+            )
+
+    def _generate_slides_prompt_mode(
+        self,
+        plan,
+        style_name,
+        processed_style: Optional[ProcessedStyle],
+        all_sections_md,
+        figure_images,
+        layouts,
+        save_callback=None,
+    ) -> List[GeneratedImage]:
+        """Generate slides in prompt export mode (sequential, for manual generation)."""
+        results = []
+        total = len(plan.sections)
+
+        for i in range(total):
+            section = plan.sections[i]
+            section_md = self._format_single_section_markdown(section, plan)
+            layout_rule = layouts.get(section.section_type, layouts["content"])
+
+            prompt = self._build_slide_prompt(
+                style_name=style_name,
+                processed_style=processed_style,
+                sections_md=section_md,
+                layout_rule=layout_rule,
+                slide_info=f"Slide {i+1} of {total}",
+                context_md=all_sections_md,
+            )
+
+            section_images = self._filter_images([section], figure_images)
+
+            # Export prompt with reference chain instructions
+            image_data, mime_type = self._export_prompt(
+                prompt=prompt,
+                reference_images=section_images,
+                slide_num=i + 1,
+                total_slides=total,
+                section_title=section.title,
+            )
+
+            generated_img = GeneratedImage(section_id=section.id, image_data=image_data, mime_type=mime_type)
+            results.append(generated_img)
+
+            if save_callback:
+                save_callback(generated_img, i, total)
+
+        # Generate INSTRUCTIONS.md after all prompts are exported
+        self._generate_instructions_md(total)
+
+        return results
+
+    def _generate_slides_api_mode(
+        self,
+        plan,
+        style_name,
+        processed_style: Optional[ProcessedStyle],
+        all_sections_md,
+        figure_images,
+        layouts,
+        max_workers: int,
+        save_callback=None,
+    ) -> List[GeneratedImage]:
+        """Generate slides in API mode (first 2 sequential, rest parallel)."""
+        results = []
+        total = len(plan.sections)
         style_ref_image = None  # Store 2nd slide as reference for all subsequent slides
 
-        # In prompt export mode, generate all slides sequentially
-        if self.mode == "prompt":
-            for i in range(total):
-                section = plan.sections[i]
-                section_md = self._format_single_section_markdown(section, plan)
-                layout_rule = layouts.get(section.section_type, layouts["content"])
-
-                prompt = self._build_slide_prompt(
-                    style_name=style_name,
-                    processed_style=processed_style,
-                    sections_md=section_md,
-                    layout_rule=layout_rule,
-                    slide_info=f"Slide {i+1} of {total}",
-                    context_md=all_sections_md,
-                )
-
-                section_images = self._filter_images([section], figure_images)
-
-                # Export prompt with reference chain instructions
-                image_data, mime_type = self._export_prompt(
-                    prompt=prompt,
-                    reference_images=section_images,
-                    slide_num=i + 1,
-                    total_slides=total,
-                    section_title=section.title,
-                )
-
-                generated_img = GeneratedImage(section_id=section.id, image_data=image_data, mime_type=mime_type)
-                results.append(generated_img)
-
-                if save_callback:
-                    save_callback(generated_img, i, total)
-
-            # Generate INSTRUCTIONS.md after all prompts are exported
-            self._generate_instructions_md(total)
-
-            return results
-
-        # API mode: original behavior (first 2 sequential, rest parallel)
         # Generate first 2 slides sequentially (slide 1: no ref, slide 2: becomes ref)
         for i in range(min(2, total)):
             section = plan.sections[i]
@@ -977,8 +1018,8 @@ def import_generated_images(prompt_dir: str, output_path: str):
         # Look for generated image
         generated_img = slide_dir / GENERATED_IMAGE_FILENAME
         if not generated_img.exists():
-            # Try other common names
-            for alt_name in ["generated.jpg", "generated.jpeg", "slide.png", "slide.jpg", "output.png"]:
+            # Try alternative filenames
+            for alt_name in IMPORT_ALTERNATIVE_FILENAMES:
                 alt_path = slide_dir / alt_name
                 if alt_path.exists():
                     generated_img = alt_path
@@ -1000,8 +1041,13 @@ def import_generated_images(prompt_dir: str, output_path: str):
         )
         imported_count += 1
 
-    if imported_count > 0:
-        prs.save(output_path)
-        logger.info(f"PPTX saved: {output_path} ({imported_count} slides)")
+    if imported_count == 0:
+        raise ValueError(
+            f"No generated images found in {prompt_dir}. "
+            f"Expected '{GENERATED_IMAGE_FILENAME}' in each slide_XX_images/ directory."
+        )
+
+    prs.save(output_path)
+    logger.info(f"PPTX saved: {output_path} ({imported_count} slides)")
 
     return missing_slides
