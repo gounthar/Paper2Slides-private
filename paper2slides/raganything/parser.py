@@ -57,6 +57,9 @@ class Parser:
     TEXT_FORMATS = {".txt", ".md"}
     ASCIIDOC_FORMATS = {".adoc", ".asciidoc", ".asc"}
 
+    # Minimum valid PDF size in bytes (smaller than this likely indicates corruption)
+    MIN_PDF_SIZE_BYTES = 100
+
     # Class-level logger
     logger = logging.getLogger(__name__)
 
@@ -183,7 +186,7 @@ class Parser:
                 )
 
                 # Validate the generated PDF
-                if pdf_path.stat().st_size < 100:  # Very small file, likely empty
+                if pdf_path.stat().st_size < Parser.MIN_PDF_SIZE_BYTES:  # Very small file, likely empty
                     raise RuntimeError(
                         "Generated PDF appears to be empty or corrupted. "
                         "Original file may have issues or LibreOffice conversion failed."
@@ -424,7 +427,7 @@ class Parser:
                 )
 
             # Validate the generated PDF
-            if not pdf_path.exists() or pdf_path.stat().st_size < 100:
+            if not pdf_path.exists() or pdf_path.stat().st_size < Parser.MIN_PDF_SIZE_BYTES:
                 raise RuntimeError(
                     f"PDF conversion failed for {text_path.name} - generated PDF is empty or corrupted."
                 )
@@ -458,9 +461,8 @@ class Parser:
             if not adoc_path.exists():
                 raise FileNotFoundError(f"AsciiDoc file does not exist: {adoc_path}")
 
-            # Supported AsciiDoc formats
-            supported_formats = {".adoc", ".asciidoc", ".asc"}
-            if adoc_path.suffix.lower() not in supported_formats:
+            # Validate AsciiDoc format
+            if adoc_path.suffix.lower() not in Parser.ASCIIDOC_FORMATS:
                 raise ValueError(f"Unsupported AsciiDoc format: {adoc_path.suffix}")
 
             # Prepare output directory
@@ -546,8 +548,11 @@ class Parser:
                         if result.returncode == 0 and pdf_path.exists():
                             conversion_successful = True
                             logging.info("Successfully converted via asciidoctor + wkhtmltopdf")
-                            # Clean up HTML
-                            html_path.unlink()
+                            # Best-effort cleanup of intermediate HTML
+                            try:
+                                html_path.unlink()
+                            except OSError:
+                                pass  # Non-critical cleanup failure
                 except Exception as e:
                     logging.warning(f"Fallback conversion failed: {e}")
 
@@ -560,7 +565,7 @@ class Parser:
                         try:
                             cmd = ["pandoc", "-f", "asciidoc", str(adoc_path), "-o", str(pdf_path), f"--pdf-engine={engine}"]
                             result = subprocess.run(cmd, **subprocess_kwargs)
-                            if result.returncode == 0 and pdf_path.exists() and pdf_path.stat().st_size > 100:
+                            if result.returncode == 0 and pdf_path.exists() and pdf_path.stat().st_size > Parser.MIN_PDF_SIZE_BYTES:
                                 conversion_successful = True
                                 logging.info(f"Successfully converted via pandoc + {engine}")
                                 break
@@ -579,7 +584,7 @@ class Parser:
                 )
 
             # Validate the generated PDF
-            if not pdf_path.exists() or pdf_path.stat().st_size < 100:
+            if not pdf_path.exists() or pdf_path.stat().st_size < Parser.MIN_PDF_SIZE_BYTES:
                 raise RuntimeError(
                     f"PDF conversion failed for {adoc_path.name} - generated PDF is empty or corrupted."
                 )
@@ -654,7 +659,7 @@ class Parser:
 
                     result = subprocess.run(cmd, **subprocess_kwargs)
 
-                    if result.returncode == 0 and pdf_path.exists() and pdf_path.stat().st_size > 100:
+                    if result.returncode == 0 and pdf_path.exists() and pdf_path.stat().st_size > Parser.MIN_PDF_SIZE_BYTES:
                         conversion_successful = True
                         logging.info(f"Successfully converted {md_path.name} to PDF using pandoc + {engine}")
                         break
