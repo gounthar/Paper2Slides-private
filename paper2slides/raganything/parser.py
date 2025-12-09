@@ -842,11 +842,17 @@ class MineruParser(Parser):
         try:
             import torch
             if torch.cuda.is_available():
+                logging.debug(f"CUDA available, device count: {torch.cuda.device_count()}")
                 return "cuda"
             elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                logging.debug("MPS available")
                 return "mps"
-        except ImportError:
-            pass
+            else:
+                logging.debug(f"No GPU available. CUDA: {torch.cuda.is_available()}")
+        except ImportError as e:
+            logging.debug(f"PyTorch import failed: {e}")
+        except Exception as e:
+            logging.debug(f"Device detection error: {e}")
         return "cpu"
 
     @staticmethod
