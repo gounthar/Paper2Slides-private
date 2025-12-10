@@ -7,6 +7,7 @@ import logging
 import argparse
 import asyncio
 from pathlib import Path
+from dotenv import load_dotenv
 
 from paper2slides.utils import setup_logging
 from paper2slides.utils.path_utils import (
@@ -28,6 +29,9 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "1")
 # Get project root directory (parent of paper2slides package)
 PROJECT_ROOT = Path(__file__).parent.parent
 DEFAULT_OUTPUT_DIR = str(PROJECT_ROOT / "outputs")
+
+# Load environment variables from .env file
+load_dotenv(dotenv_path=PROJECT_ROOT / "paper2slides" / ".env", override=False)
 
 logger = logging.getLogger(__name__)
 
