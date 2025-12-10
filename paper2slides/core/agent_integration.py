@@ -87,7 +87,12 @@ def _transform_via_llm(structured_text: str, style_profile: str) -> str:
         system_prompt = _load_style_prompt(style_profile)
     except FileNotFoundError:
         # Fallback to generic conversational style
-        logger.warning(f"Style profile '{style_profile}' not found, using generic conversational style")
+        prompt_dir = Path(__file__).parent.parent / "prompts"
+        expected_path = prompt_dir / f"{style_profile}_speaking_style.md"
+        logger.warning(
+            f"Style profile '{style_profile}' not found at {expected_path}, "
+            f"using generic conversational style"
+        )
         system_prompt = """You are transforming structured speaker notes into a natural, conversational narrative script.
 
 Make it sound like someone actually speaking to an audience, not reading bullet points.
