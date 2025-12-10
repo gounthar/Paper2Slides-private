@@ -27,6 +27,11 @@ PAPER_SLIDES_PLANNING_PROMPT = """Organize the document into {min_pages}-{max_pa
   - figure_id: e.g., "Figure 1", "Doc Figure 1"
   - focus: (optional) What to highlight
 - Note: A slide can have both tables and figures together if they complement each other.
+- **speaker_notes**: Rich presentation notes for the speaker
+  - talking_points: List of 3-5 key points to cover when presenting this slide
+  - transition: A transition phrase to connect to the next slide (e.g., "Now that we've covered the setup...")
+  - duration_minutes: Estimated speaking time for this slide (typically 1-3 minutes)
+  - key_terms: Important names, terms, or concepts to emphasize when speaking
 
 ## Content Guidelines
 
@@ -73,7 +78,18 @@ Distribute content across {min_pages}-{max_pages} slides covering these areas:
       "title": "[Method/Framework name]",
       "content": "[Detailed description: The framework consists of X components. Component A does... Component B handles... The process flow is...]",
       "tables": [],
-      "figures": [{{"figure_id": "Figure X", "focus": "[architecture/pipeline]"}}]
+      "figures": [{{"figure_id": "Figure X", "focus": "[architecture/pipeline]"}}],
+      "speaker_notes": {{
+        "talking_points": [
+          "Explain why this approach was chosen over alternatives",
+          "Walk through each component and its role",
+          "Highlight the key innovation or unique aspect",
+          "Connect back to the problem statement from slide 1"
+        ],
+        "transition": "Now that we understand the method, let's see how it performs in practice...",
+        "duration_minutes": 2,
+        "key_terms": ["Component A", "Component B", "framework architecture"]
+      }}
     }},
     {{
       "id": "slide_03",
@@ -224,6 +240,11 @@ GENERAL_SLIDES_PLANNING_PROMPT = """Organize the document into {min_pages}-{max_
   - figure_id: e.g., "Figure 1", "Doc Figure 1"
   - focus: (optional) What to highlight
 - Note: A slide can have both tables and figures together if they complement each other.
+- **speaker_notes**: Rich presentation notes for the speaker
+  - talking_points: List of 3-5 key points to cover when presenting this slide
+  - transition: A transition phrase to connect to the next slide (e.g., "Now that we've covered the setup...")
+  - duration_minutes: Estimated speaking time for this slide (typically 1-3 minutes)
+  - key_terms: Important names, terms, or concepts to emphasize when speaking
 
 ## Content Guidelines
 
@@ -256,7 +277,18 @@ Distribute content across {min_pages}-{max_pages} slides. Identify the document'
       "title": "[Topic name]",
       "content": "[Detailed description: This section covers X, Y, Z. The key aspects include... Specific data shows...]",
       "tables": [],
-      "figures": [{{"figure_id": "Figure X", "focus": "[what to highlight]"}}]
+      "figures": [{{"figure_id": "Figure X", "focus": "[what to highlight]"}}],
+      "speaker_notes": {{
+        "talking_points": [
+          "Introduce the main topic and why it matters",
+          "Walk through each key aspect with examples",
+          "Highlight the most important data point or insight",
+          "Connect to the bigger picture or next topic"
+        ],
+        "transition": "With that foundation in place, let's look at the key data...",
+        "duration_minutes": 2,
+        "key_terms": ["Topic X", "Key Aspect Y", "Important Term Z"]
+      }}
     }},
     {{
       "id": "slide_03",

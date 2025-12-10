@@ -37,15 +37,33 @@ class FigureRef:
 
 
 @dataclass
+class SpeakerNotes:
+    """Rich speaker notes for a section."""
+    talking_points: List[str] = field(default_factory=list)
+    transition: str = ""
+    duration_minutes: int = 2
+    key_terms: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "talking_points": self.talking_points,
+            "transition": self.transition,
+            "duration_minutes": self.duration_minutes,
+            "key_terms": self.key_terms,
+        }
+
+
+@dataclass
 class Section:
     """A single section/slide in the output."""
     id: str
     title: str
-    section_type: str  
+    section_type: str
     content: str
     tables: List[TableRef] = field(default_factory=list)
     figures: List[FigureRef] = field(default_factory=list)
-    
+    speaker_notes: SpeakerNotes = field(default_factory=SpeakerNotes)
+
     def to_dict(self) -> Dict[str, Any]:
         result = {
             "id": self.id,
@@ -53,7 +71,7 @@ class Section:
             "type": self.section_type,
             "content": self.content,
         }
-        
+
         # Tables with optional extract/focus
         result["tables"] = []
         for t in self.tables:
@@ -63,7 +81,7 @@ class Section:
             if t.focus:
                 t_dict["focus"] = t.focus
             result["tables"].append(t_dict)
-        
+
         # Figures with optional focus
         result["figures"] = []
         for f in self.figures:
@@ -71,7 +89,11 @@ class Section:
             if f.focus:
                 f_dict["focus"] = f.focus
             result["figures"].append(f_dict)
-        
+
+        # Speaker notes
+        if self.speaker_notes:
+            result["speaker_notes"] = self.speaker_notes.to_dict()
+
         return result
 
 
@@ -393,7 +415,16 @@ class ContentPlanner:
                         section_type = "content"
                 else:
                     section_type = "content"
-                
+
+                # Parse speaker notes if present
+                speaker_notes_data = item.get("speaker_notes", {})
+                speaker_notes = SpeakerNotes(
+                    talking_points=speaker_notes_data.get("talking_points", []),
+                    transition=speaker_notes_data.get("transition", ""),
+                    duration_minutes=speaker_notes_data.get("duration_minutes", 2),
+                    key_terms=speaker_notes_data.get("key_terms", []),
+                )
+
                 sections.append(Section(
                     id=item.get("id", f"section_{idx+1}"),
                     title=item.get("title", ""),
@@ -401,6 +432,7 @@ class ContentPlanner:
                     content=item.get("content", ""),
                     tables=tables,
                     figures=figures,
+                    speaker_notes=speaker_notes,
                 ))
             return sections
             
