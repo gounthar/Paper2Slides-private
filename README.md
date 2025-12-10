@@ -189,25 +189,75 @@ Paper2Slides intelligently saves your progress at every key stage, allowing you 
 > [!TIP]
 > Checkpoints are auto-saved. Just run the same command to resume. Use `--from-stage` only to **force** restart from a specific stage.
 
-### 3. Speaker Notes Enhancement
+### 3. Complete Workflow: PPTX with Narrative Speaker Notes
 
-Paper2Slides generates **rich speaker notes** automatically with talking points, key terms, and transitions. You can further enhance these into **narrative scripts** ready to be read aloud:
+> 📖 **[Full Detailed Guide](docs/NARRATIVE_SPEAKER_NOTES_WORKFLOW.md)** - Complete step-by-step workflow with examples, troubleshooting, and best practices
+
+This workflow generates a PowerPoint presentation with **full narrative speaker notes** ready to be read aloud during presentations.
+
+#### Prerequisites
+
+Set your OpenAI API key in `paper2slides/.env`:
+```bash
+RAG_LLM_API_KEY=sk-your-openai-api-key-here
+```
+
+#### Step-by-Step Workflow
+
+**Step 1: Generate Slides with Structured Notes**
 
 ```bash
-# Step 1: Generate slides (creates checkpoint_plan.json with speaker notes)
-python -m paper2slides --input paper.pdf --output slides --export-prompts
+python -m paper2slides \
+  --input /path/to/your-paper.pdf \
+  --content general \
+  --output slides \
+  --style academic \
+  --length short \
+  --export-prompts
+```
 
-# Step 2: Enhance notes into narrative form
+**Output:** Creates structured speaker notes in `checkpoint_plan.json`
+```
+outputs/your-paper/general/normal/slides_academic_short/
+├── checkpoint_plan.json          # Contains structured speaker notes
+└── YYYYMMDD_HHMMSS/
+    └── prompts/
+        ├── slide_01_prompt.txt
+        ├── slide_01_images/
+        ├── slide_02_prompt.txt
+        ├── slide_02_images/
+        └── ...
+```
+
+**Step 2: Enhance Speaker Notes to Narrative Style**
+
+```bash
 python -m paper2slides --enhance-speaker-notes \
   outputs/your-paper/general/normal/slides_academic_short/checkpoint_plan.json \
   --speaker-style bruno
-
-# Step 3: Generate images and import to PPTX
-# (manually generate with Gemini/Nano Banana, then:)
-python -m paper2slides --import-images outputs/.../prompts
 ```
 
-**What you get:**
+**Output:** Adds `speaker_notes_narrative` field to checkpoint with full conversational scripts
+
+**Step 3: Generate Images**
+
+Manually generate images using the exported prompts with:
+- Gemini (https://gemini.google.com)
+- Nano Banana (https://nanobanana.app)
+- Or any image generator
+
+Save generated images as `generated.png` in each `slide_XX_images/` directory.
+
+**Step 4: Create PowerPoint with Narrative Notes**
+
+```bash
+python -m paper2slides --import-images \
+  outputs/your-paper/general/normal/slides_academic_short/YYYYMMDD_HHMMSS/prompts
+```
+
+**Output:** `outputs/.../YYYYMMDD_HHMMSS/slides.pptx` with narrative speaker notes
+
+#### What You Get
 
 | Mode | Format | Use Case |
 |------|--------|----------|
@@ -225,8 +275,41 @@ You'll be waiting a lot. The sweet spot is the BananaPi F3 - 8 cores,
 16GB RAM, running Armbian Trixie...
 ```
 
-> [!NOTE]
-> Requires `RAG_LLM_API_KEY` environment variable for LLM-powered transformation. Falls back to basic narrative if unavailable.
+#### Quick Reference Commands
+
+```bash
+# Full workflow in one place
+export PROJECT="your-paper"
+export BASE="outputs/${PROJECT}/general/normal/slides_academic_short"
+
+# 1. Generate with structured notes
+python -m paper2slides --input paper.pdf --content general --output slides --export-prompts
+
+# 2. Enhance to narrative
+python -m paper2slides --enhance-speaker-notes ${BASE}/checkpoint_plan.json --speaker-style bruno
+
+# 3. After manually generating images, create PPTX
+export PROMPTS=$(ls -td ${BASE}/*/prompts | head -1)
+python -m paper2slides --import-images ${PROMPTS}
+
+# 4. Open the result
+open ${PROMPTS}/../slides.pptx  # macOS
+xdg-open ${PROMPTS}/../slides.pptx  # Linux
+```
+
+#### Troubleshooting
+
+**"RAG_LLM_API_KEY environment variable is not set"**
+- Add your OpenAI API key to `paper2slides/.env`
+- Get a key at https://platform.openai.com/api-keys
+
+**"No structured notes, skipping"**
+- Some slides (like title slides) may not have speaker notes
+- This is normal behavior
+
+**"Missing slides" warning during import**
+- Generate images for all `slide_XX_prompt.txt` files
+- Save as `generated.png` in corresponding `slide_XX_images/` directories
 
 ### 4. Web Interface
 
