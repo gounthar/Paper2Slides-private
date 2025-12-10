@@ -99,10 +99,8 @@ def main():
             enhanced_count = enhance_speaker_notes(str(checkpoint_path), args.speaker_style)
             logger.info(f"Successfully enhanced {enhanced_count} slides with narrative speaker notes")
             logger.info(f"Updated checkpoint: {checkpoint_path}")
-        except Exception as e:
-            logger.error(f"Enhancement failed: {e}")
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            logger.exception("Enhancement failed")
         return
 
     # Handle --import-images mode (standalone operation)

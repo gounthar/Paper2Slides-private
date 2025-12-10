@@ -1,23 +1,18 @@
 """
 Agent Integration for Paper2Slides
 
-Provides integration with Claude Code agents (style-replicator, etc.)
+Provides LLM-based style transformation for speaker notes.
 """
 import logging
-import subprocess
-import json
-import tempfile
-from pathlib import Path
+import os
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
 
 def invoke_style_replicator(text: str, style_profile: str = "bruno") -> str:
     """
-    Invoke the style-replicator agent to transform text into narrative style.
-
-    This uses the Claude Code CLI to invoke the style-replicator agent.
-    Since we can't directly use the Task tool from Python, we use subprocess.
+    Transform text into narrative style using LLM.
 
     Args:
         text: Structured text to transform
@@ -27,53 +22,37 @@ def invoke_style_replicator(text: str, style_profile: str = "bruno") -> str:
         Transformed narrative text
 
     Raises:
-        Exception: If agent invocation fails
+        ValueError: If RAG_LLM_API_KEY environment variable is not set
+        Exception: If LLM transformation fails
     """
-    # Create temp file with input text
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write(text)
-        input_file = f.name
-
-    output_file = input_file.replace('.txt', '_output.txt')
-
-    try:
-        # Note: This is a placeholder for the actual integration
-        # In reality, we can't easily invoke Claude Code agents from subprocess
-        # because they're part of the same Claude Code session.
-        #
-        # Better approach: Use the @agent syntax or Task tool if available,
-        # or implement the style transformation directly using an LLM API call.
-
-        logger.warning("Style-replicator agent integration not yet implemented")
-        logger.info("Using direct LLM transformation instead...")
-
-        # Use OpenAI API directly (simpler than subprocess)
-        return _transform_via_llm(text, style_profile)
-
-    finally:
-        # Cleanup temp files
-        try:
-            Path(input_file).unlink()
-            if Path(output_file).exists():
-                Path(output_file).unlink()
-        except:
-            pass
+    logger.warning("Style-replicator agent integration not yet implemented")
+    logger.info("Using direct LLM transformation instead...")
+    return _transform_via_llm(text, style_profile)
 
 
 def _transform_via_llm(structured_text: str, style_profile: str) -> str:
     """
     Transform structured notes using LLM API directly.
 
-    This is more practical than trying to invoke agents via subprocess.
-    """
-    import os
-    from openai import OpenAI
+    Args:
+        structured_text: Structured speaker notes to transform
+        style_profile: Style profile name ('bruno' or 'generic')
 
+    Returns:
+        Narrative text in specified style
+
+    Raises:
+        ValueError: If RAG_LLM_API_KEY is not set
+        Exception: If API call fails
+    """
     api_key = os.getenv("RAG_LLM_API_KEY", "")
     base_url = os.getenv("RAG_LLM_BASE_URL")
 
     if not api_key:
-        raise ValueError("RAG_LLM_API_KEY not set")
+        raise ValueError(
+            "RAG_LLM_API_KEY environment variable is not set. "
+            "Please set it to enable LLM-powered narrative transformation."
+        )
 
     kwargs = {"api_key": api_key}
     if base_url:
@@ -117,5 +96,5 @@ Keep the content accurate but make the delivery engaging and natural."""
         return narrative
 
     except Exception as e:
-        logger.error(f"LLM transformation failed: {e}")
+        logger.exception("LLM transformation failed")
         raise

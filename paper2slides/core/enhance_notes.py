@@ -3,10 +3,12 @@ Speaker Notes Enhancement
 
 Transforms structured speaker notes into narrative form using style-replicator agent.
 """
-import json
 import logging
 from pathlib import Path
 from typing import Dict, Any
+
+from paper2slides.utils import load_json, save_json
+from paper2slides.core.agent_integration import invoke_style_replicator
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +24,6 @@ def enhance_speaker_notes(checkpoint_path: str, style_profile: str = "bruno") ->
     Returns:
         Number of slides enhanced
     """
-    from paper2slides.utils import load_json, save_json
-
     checkpoint_file = Path(checkpoint_path)
     if not checkpoint_file.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
@@ -70,8 +70,8 @@ def enhance_speaker_notes(checkpoint_path: str, style_profile: str = "bruno") ->
             section["speaker_notes_narrative"] = narrative_notes
             enhanced_count += 1
 
-        except Exception as e:
-            logger.error(f"  Failed to enhance {slide_id}: {e}")
+        except Exception:
+            logger.exception(f"  Failed to enhance {slide_id}")
             continue
 
     # Save enhanced checkpoint
@@ -136,10 +136,8 @@ Transform these bullet-point talking points into a complete narrative script tha
 - Match the speaker's personal style (informal, direct, uses "here's the thing", parenthetical asides, etc.)
 """
 
-    # Use Task tool to invoke style-replicator agent
-    # For now, we'll use a subprocess-style invocation
+    # Invoke LLM-based style transformation
     try:
-        from paper2slides.core.agent_integration import invoke_style_replicator
         narrative = invoke_style_replicator(structured_text, style_profile)
         return narrative
     except Exception as e:
