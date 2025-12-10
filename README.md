@@ -171,7 +171,7 @@ python -m paper2slides --list
 | `--export-prompts` | Export prompts for manual image generation (Nano Banana, etc.) | `false` |
 | `--import-images DIR` | Import manually generated images from prompt directory to create PPTX | - |
 | `--enhance-speaker-notes FILE` | Transform structured speaker notes into narrative style (reads checkpoint_plan.json) | - |
-| `--speaker-style STYLE` | Style profile for narrative transformation (`bruno`, etc.) | `bruno` |
+| `--speaker-style STYLE` | Style profile for narrative transformation (currently only `bruno` is implemented) | `bruno` |
 | `--from-stage` | Force restart from stage: `rag`, `summary`, `plan`, `generate` | Auto-detect |
 | `--debug` | Enable debug logging | `false` |
 
@@ -215,7 +215,7 @@ python -m paper2slides --import-images outputs/.../prompts
 | **Narrative** (enhanced) | Full flowing script | Read-aloud scripts, practice sessions |
 
 **Narrative Example:**
-```
+```text
 Here's the thing about RISC-V64: the official GitHub Actions runner?
 It doesn't work. So we're using github-act-runner instead - it's a
 Go-based alternative that actually runs on RISC-V64.
