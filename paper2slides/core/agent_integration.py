@@ -25,8 +25,6 @@ def invoke_style_replicator(text: str, style_profile: str = "bruno") -> str:
         ValueError: If RAG_LLM_API_KEY environment variable is not set
         Exception: If LLM transformation fails
     """
-    logger.warning("Style-replicator agent integration not yet implemented")
-    logger.info("Using direct LLM transformation instead...")
     return _transform_via_llm(text, style_profile)
 
 
