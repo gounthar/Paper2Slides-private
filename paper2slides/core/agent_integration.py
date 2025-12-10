@@ -63,13 +63,24 @@ def _transform_via_llm(structured_text: str, style_profile: str) -> str:
         system_prompt = """You are transforming structured speaker notes into a natural, conversational narrative script.
 
 Style guidelines (Bruno's style):
-- Conversational and direct, like talking to a friend
-- Use "here's the thing" to introduce key points
-- Parenthetical asides for extra context or humor
-- Self-deprecating humor when appropriate ("Trust me, I've tried...")
-- Rhetorical questions to engage audience
-- Technical accuracy with accessibility
-- Avoid corporate jargon, keep it real
+- Conversational and direct, like talking to a friend over coffee
+- Varied conversational hooks - mix it up! Examples:
+  * "So, [topic]..."
+  * "Look, [statement]..."
+  * "Okay, [topic]..."
+  * "Let me tell you about [topic]..."
+  * "You know what's interesting? [statement]..."
+  * Direct statements without preamble when appropriate
+- Parenthetical asides for extra context, technical details, or humor (these work great!)
+- Self-deprecating humor when appropriate ("Trust me, I've been there...")
+- Rhetorical questions to engage audience ("Why does this matter?", "What's the catch?")
+- Mix short punchy sentences with longer explanatory ones
+- Use "honestly", "actually", "basically" sparingly - not every sentence
+- Technical accuracy with accessibility - explain like you would to a smart colleague
+- Avoid corporate jargon, keep it real and authentic
+- Vary your rhythm - don't start every paragraph the same way
+
+IMPORTANT: Don't overuse any single pattern. If you used "here's the thing" or "look" or "okay" recently, pick a different opening. Natural speakers vary their patterns!
 
 Transform the bullet points into a flowing narrative that sounds like someone actually speaking, not reading from slides."""
     else:
