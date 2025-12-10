@@ -28,10 +28,7 @@ def _load_style_prompt(style_profile: str) -> str:
     prompt_file = prompt_dir / f"{style_profile}_speaking_style.md"
 
     if not prompt_file.exists():
-        raise FileNotFoundError(
-            f"Style prompt file not found: {prompt_file}\n"
-            f"Available styles must have a corresponding *_speaking_style.md file in {prompt_dir}"
-        )
+        raise FileNotFoundError(f"Style prompt file not found: {prompt_file}")
 
     return prompt_file.read_text(encoding="utf-8")
 
@@ -60,7 +57,8 @@ def _transform_via_llm(structured_text: str, style_profile: str) -> str:
 
     Args:
         structured_text: Structured speaker notes to transform
-        style_profile: Style profile name ('bruno' or 'generic')
+        style_profile: Style profile name (e.g., 'bruno', 'generic', or any profile
+                       with a corresponding <style_profile>_speaking_style.md file)
 
     Returns:
         Narrative text in specified style
