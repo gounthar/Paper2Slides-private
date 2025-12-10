@@ -53,6 +53,7 @@ python -m paper2slides --input paper.pdf --output slides --style doraemon --leng
 
 ## 🔥 News
 
+- **[2025.12.10]** Added narrative speaker notes enhancement command for natural presentation scripts
 - **[2025.12.09]** Added parallel slide generation (`--parallel`) for faster processing
 - **[2025.12.08]** Paper2Slides is now open source!
 
@@ -142,6 +143,15 @@ python -m paper2slides --input paper.pdf --output slides --fast
 # Enable parallel generation (2 workers by default)
 python -m paper2slides --input paper.pdf --output slides --parallel 2
 
+# Export prompts for manual image generation
+python -m paper2slides --input paper.pdf --output slides --export-prompts
+
+# Enhance speaker notes with narrative style
+python -m paper2slides --enhance-speaker-notes outputs/.../checkpoint_plan.json --speaker-style bruno
+
+# Import manually generated images to create PPTX
+python -m paper2slides --import-images outputs/.../prompts
+
 # List all processed outputs
 python -m paper2slides --list
 ```
@@ -158,6 +168,10 @@ python -m paper2slides --list
 | `--density` | Poster density: `sparse`, `medium`, `dense` | `medium` |
 | `--fast` | Fast mode: skip RAG indexing | `false` |
 | `--parallel` | Enable parallel slide generation: `--parallel` uses 2 workers, `--parallel N` uses N workers | `1` (sequential without this option) |
+| `--export-prompts` | Export prompts for manual image generation (Nano Banana, etc.) | `false` |
+| `--import-images DIR` | Import manually generated images from prompt directory to create PPTX | - |
+| `--enhance-speaker-notes FILE` | Transform structured speaker notes into narrative style (reads checkpoint_plan.json) | - |
+| `--speaker-style STYLE` | Style profile for narrative transformation (currently only `bruno` is implemented) | `bruno` |
 | `--from-stage` | Force restart from stage: `rag`, `summary`, `plan`, `generate` | Auto-detect |
 | `--debug` | Enable debug logging | `false` |
 
@@ -175,7 +189,46 @@ Paper2Slides intelligently saves your progress at every key stage, allowing you 
 > [!TIP]
 > Checkpoints are auto-saved. Just run the same command to resume. Use `--from-stage` only to **force** restart from a specific stage.
 
-### 3. Web Interface
+### 3. Speaker Notes Enhancement
+
+Paper2Slides generates **rich speaker notes** automatically with talking points, key terms, and transitions. You can further enhance these into **narrative scripts** ready to be read aloud:
+
+```bash
+# Step 1: Generate slides (creates checkpoint_plan.json with speaker notes)
+python -m paper2slides --input paper.pdf --output slides --export-prompts
+
+# Step 2: Enhance notes into narrative form
+python -m paper2slides --enhance-speaker-notes \
+  outputs/your-paper/general/normal/slides_academic_short/checkpoint_plan.json \
+  --speaker-style bruno
+
+# Step 3: Generate images and import to PPTX
+# (manually generate with Gemini/Nano Banana, then:)
+python -m paper2slides --import-images outputs/.../prompts
+```
+
+**What you get:**
+
+| Mode | Format | Use Case |
+|------|--------|----------|
+| **Structured** (default) | Bullet points, key terms, transitions | Quick reference, experienced speakers |
+| **Narrative** (enhanced) | Full flowing script | Read-aloud scripts, practice sessions |
+
+**Narrative Example:**
+```text
+Here's the thing about RISC-V64: the official GitHub Actions runner?
+It doesn't work. So we're using github-act-runner instead - it's a
+Go-based alternative that actually runs on RISC-V64.
+
+Now, hardware. You *can* run this on 4 cores and 4GB RAM, but honestly?
+You'll be waiting a lot. The sweet spot is the BananaPi F3 - 8 cores,
+16GB RAM, running Armbian Trixie...
+```
+
+> [!NOTE]
+> Requires `RAG_LLM_API_KEY` environment variable for LLM-powered transformation. Falls back to basic narrative if unavailable.
+
+### 4. Web Interface
 
 Launch both backend and frontend services:
 

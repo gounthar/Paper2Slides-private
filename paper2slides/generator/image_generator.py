@@ -1028,40 +1028,44 @@ def import_generated_images(prompt_dir: str, output_path: str):
                     title = section.get("title", "")
                     content = section.get("content", "")
 
-                    # Check for rich speaker notes
-                    notes_data = section.get("speaker_notes", {})
-                    if notes_data and notes_data.get("talking_points"):
-                        # Format rich speaker notes
-                        notes_parts = [f"## {title}\n"]
-
-                        # Add talking points
-                        talking_points = notes_data.get("talking_points", [])
-                        if talking_points:
-                            notes_parts.append("### Key Points:")
-                            for point in talking_points:
-                                notes_parts.append(f"• {point}")
-                            notes_parts.append("")
-
-                        # Add key terms to emphasize
-                        key_terms = notes_data.get("key_terms", [])
-                        if key_terms:
-                            notes_parts.append(f"**Emphasize:** {', '.join(key_terms)}")
-                            notes_parts.append("")
-
-                        # Add transition
-                        transition = notes_data.get("transition", "")
-                        if transition:
-                            notes_parts.append(f"**Transition:** {transition}")
-                            notes_parts.append("")
-
-                        # Add duration
-                        duration = notes_data.get("duration_minutes", 2)
-                        notes_parts.append(f"⏱️ ~{duration} minutes")
-
-                        notes_text = "\n".join(notes_parts)
+                    # Check for enhanced narrative notes first (from --enhance-speaker-notes)
+                    if "speaker_notes_narrative" in section:
+                        notes_text = section["speaker_notes_narrative"]
                     else:
-                        # Fallback to basic format
-                        notes_text = f"{title}\n\n{content}" if title else content
+                        # Check for rich speaker notes
+                        notes_data = section.get("speaker_notes", {})
+                        if notes_data and notes_data.get("talking_points"):
+                            # Format rich speaker notes
+                            notes_parts = [f"## {title}\n"]
+
+                            # Add talking points
+                            talking_points = notes_data.get("talking_points", [])
+                            if talking_points:
+                                notes_parts.append("### Key Points:")
+                                for point in talking_points:
+                                    notes_parts.append(f"• {point}")
+                                notes_parts.append("")
+
+                            # Add key terms to emphasize
+                            key_terms = notes_data.get("key_terms", [])
+                            if key_terms:
+                                notes_parts.append(f"**Emphasize:** {', '.join(key_terms)}")
+                                notes_parts.append("")
+
+                            # Add transition
+                            transition = notes_data.get("transition", "")
+                            if transition:
+                                notes_parts.append(f"**Transition:** {transition}")
+                                notes_parts.append("")
+
+                            # Add duration
+                            duration = notes_data.get("duration_minutes", 2)
+                            notes_parts.append(f"⏱️ ~{duration} minutes")
+
+                            notes_text = "\n".join(notes_parts)
+                        else:
+                            # Fallback to basic format
+                            notes_text = f"{title}\n\n{content}" if title else content
 
                     speaker_notes[slide_num] = notes_text
             logger.info(f"Loaded speaker notes for {len(speaker_notes)} slides")

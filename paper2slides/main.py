@@ -66,6 +66,10 @@ def main():
                         help="Export Nano Banana prompts instead of calling image generation API")
     parser.add_argument("--import-images", type=str, metavar="DIR",
                         help="Import manually generated images from prompt directory to create PPTX")
+    parser.add_argument("--enhance-speaker-notes", type=str, metavar="CHECKPOINT",
+                        help="Enhance speaker notes in checkpoint_plan.json with narrative style (e.g., outputs/.../checkpoint_plan.json)")
+    parser.add_argument("--speaker-style", type=str, default="bruno",
+                        help="Speaker notes style profile (default: bruno)")
     parser.add_argument("--pptx", action="store_true",
                         help="Generate PPTX output instead of PDF (default for prompt export mode)")
 
@@ -76,6 +80,27 @@ def main():
     
     if args.list:
         list_outputs(args.output_dir)
+        return
+
+    # Handle --enhance-speaker-notes mode (standalone operation)
+    if args.enhance_speaker_notes:
+        from paper2slides.core.enhance_notes import enhance_speaker_notes
+        checkpoint_path = Path(args.enhance_speaker_notes)
+        if not checkpoint_path.exists():
+            logger.error(f"Checkpoint file not found: {checkpoint_path}")
+            return
+        if not checkpoint_path.is_file():
+            logger.error(f"Checkpoint path is not a file: {checkpoint_path}")
+            return
+
+        logger.info(f"Enhancing speaker notes in: {checkpoint_path}")
+        logger.info(f"Using style profile: {args.speaker_style}")
+        try:
+            enhanced_count = enhance_speaker_notes(str(checkpoint_path), args.speaker_style)
+            logger.info(f"Successfully enhanced {enhanced_count} slides with narrative speaker notes")
+            logger.info(f"Updated checkpoint: {checkpoint_path}")
+        except Exception:
+            logger.exception("Enhancement failed")
         return
 
     # Handle --import-images mode (standalone operation)
