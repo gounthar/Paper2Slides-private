@@ -79,6 +79,27 @@ def enhance_speaker_notes(checkpoint_path: str, style_profile: str = "bruno") ->
         logger.info(f"Saving enhanced checkpoint...")
         save_json(checkpoint_file, checkpoint_data)
 
+        # Find the prompts directory for next step
+        checkpoint_dir = checkpoint_file.parent
+        prompt_dirs = list(checkpoint_dir.glob("*/prompts"))
+
+        if prompt_dirs:
+            # Get the most recent prompts directory
+            latest_prompts = max(prompt_dirs, key=lambda p: p.parent.name)
+
+            logger.info("")
+            logger.info("=" * 70)
+            logger.info("✅ Speaker notes enhanced successfully!")
+            logger.info("=" * 70)
+            logger.info("")
+            logger.info("📋 Next step: Create PowerPoint with enhanced narrative notes")
+            logger.info("")
+            logger.info("Run this command:")
+            logger.info(f"  python -m paper2slides --import-images {latest_prompts}")
+            logger.info("")
+            logger.info(f"Output will be: {latest_prompts.parent}/slides.pptx")
+            logger.info("=" * 70)
+
     return enhanced_count
 
 
