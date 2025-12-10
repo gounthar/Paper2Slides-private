@@ -5,9 +5,32 @@ Provides LLM-based style transformation for speaker notes.
 """
 import logging
 import os
+from pathlib import Path
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
+
+
+def _load_style_prompt(style_profile: str) -> str:
+    """
+    Load style prompt from markdown file.
+
+    Args:
+        style_profile: Style profile name (e.g., 'bruno')
+
+    Returns:
+        System prompt text
+
+    Raises:
+        FileNotFoundError: If prompt file doesn't exist
+    """
+    prompt_dir = Path(__file__).parent.parent / "prompts"
+    prompt_file = prompt_dir / f"{style_profile}_speaking_style.md"
+
+    if not prompt_file.exists():
+        raise FileNotFoundError(f"Style prompt file not found: {prompt_file}")
+
+    return prompt_file.read_text(encoding="utf-8")
 
 
 def invoke_style_replicator(text: str, style_profile: str = "bruno") -> str:
@@ -34,7 +57,8 @@ def _transform_via_llm(structured_text: str, style_profile: str) -> str:
 
     Args:
         structured_text: Structured speaker notes to transform
-        style_profile: Style profile name ('bruno' or 'generic')
+        style_profile: Style profile name (e.g., 'bruno', 'generic', or any profile
+                       with a corresponding <style_profile>_speaking_style.md file)
 
     Returns:
         Narrative text in specified style
@@ -58,32 +82,17 @@ def _transform_via_llm(structured_text: str, style_profile: str) -> str:
 
     client = OpenAI(**kwargs)
 
-    # Build prompt based on style profile
-    if style_profile == "bruno":
-        system_prompt = """You are transforming structured speaker notes into a natural, conversational narrative script.
-
-Style guidelines (Bruno's style):
-- Conversational and direct, like talking to a friend over coffee
-- Varied conversational hooks - mix it up! Examples:
-  * "So, [topic]..."
-  * "Look, [statement]..."
-  * "Okay, [topic]..."
-  * "Let me tell you about [topic]..."
-  * "You know what's interesting? [statement]..."
-  * Direct statements without preamble when appropriate
-- Parenthetical asides for extra context, technical details, or humor (these work great!)
-- Self-deprecating humor when appropriate ("Trust me, I've been there...")
-- Rhetorical questions to engage audience ("Why does this matter?", "What's the catch?")
-- Mix short punchy sentences with longer explanatory ones
-- Use "honestly", "actually", "basically" sparingly - not every sentence
-- Technical accuracy with accessibility - explain like you would to a smart colleague
-- Avoid corporate jargon, keep it real and authentic
-- Vary your rhythm - don't start every paragraph the same way
-
-IMPORTANT: Don't overuse any single pattern. If you used "here's the thing" or "look" or "okay" recently, pick a different opening. Natural speakers vary their patterns!
-
-Transform the bullet points into a flowing narrative that sounds like someone actually speaking, not reading from slides."""
-    else:
+    # Load style prompt from file
+    try:
+        system_prompt = _load_style_prompt(style_profile)
+    except FileNotFoundError:
+        # Fallback to generic conversational style
+        prompt_dir = Path(__file__).parent.parent / "prompts"
+        expected_path = prompt_dir / f"{style_profile}_speaking_style.md"
+        logger.warning(
+            f"Style profile '{style_profile}' not found at {expected_path}, "
+            f"using generic conversational style"
+        )
         system_prompt = """You are transforming structured speaker notes into a natural, conversational narrative script.
 
 Make it sound like someone actually speaking to an audience, not reading bullet points.
