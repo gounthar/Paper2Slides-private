@@ -128,6 +128,28 @@ def main():
                 logger.info("Generate the missing images and re-run import")
             else:
                 logger.info(f"Successfully created: {output_pptx}")
+
+                # Show helpful open command
+                logger.info("")
+                logger.info("=" * 70)
+                logger.info("✅ PowerPoint created successfully!")
+                logger.info("=" * 70)
+                logger.info("")
+                logger.info("📂 Open your presentation:")
+                logger.info("")
+
+                import platform
+                system = platform.system()
+                if system == "Darwin":  # macOS
+                    open_cmd = f"open {output_pptx}"
+                elif system == "Windows":
+                    open_cmd = f"start {output_pptx}"
+                else:  # Linux/WSL
+                    open_cmd = f"xdg-open {output_pptx}"
+
+                logger.info(f"  {open_cmd}")
+                logger.info("")
+                logger.info("=" * 70)
         except ValueError as e:
             logger.error(f"Import failed: {e}")
             logger.info("Ensure the directory contains slide_XX_images/ subdirectories with generated.png files")
